@@ -1,36 +1,64 @@
-ï»¿#include "VillageScene.h"
+#include "VillageScene.h"
+#include "../Model/PlayerData.h" // ÒýÈëÊý¾ÝÄ£ÐÍ
 
 USING_NS_CC;
 
-// ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½
 Scene* VillageScene::createScene() {
-  auto scene = Scene::create();
-  auto layer = VillageScene::create();
-  scene->addChild(layer);
-  return scene;
+  return VillageScene::create();
 }
 
-// ï¿½ï¿½Ê¼ï¿½ï¿½
 bool VillageScene::init() {
-  if (!Scene::init()) return false;
+  if (!Scene::init()) {
+    return false;
+  }
 
-  auto screenSize = Director::getInstance()->getVisibleSize();
+  // 1. ³õÊ¼»¯ Layer (±£³ÖÄãÖ®Ç°µÄ´úÂë)
+  _gameLayer = VillageLayer::create();
+  this->addChild(_gameLayer, 1);
 
-  // ï¿½ï¿½×¯ï¿½ï¿½ï¿½ï¿½
-  auto bg = Sprite::create("Scene/VillageScene.png");
-  bg->setPosition(screenSize / 2);
-  bg->Sprite::setScale(0.5);
-  this->addChild(bg);
+  _hudLayer = HUDLayer::create();
+  this->addChild(_hudLayer, 2);
 
-  //// ï¿½òµ¥½ï¿½ï¿½ï¿½
-  //auto townHall = Sprite::create("townhall.png");
-  //townHall->setPosition(screenSize.width / 2, screenSize.height / 2);
-  //this->addChild(townHall);
+  // 2. ³õÊ¼»¯¿ØÖÆÆ÷
+  _resourceController = new ResourceController();
+  _upgradeController = new UpgradeController();
 
+  // 3. ¿ªÆô Update µ÷¶ÈÆ÷ (¹Ø¼ü²½Öè)
+  this->scheduleUpdate();
 
-  auto label = Label::createWithSystemFont("man! what can i say!", "Arial", 36);
-  label->setPosition(Vec2(screenSize.width / 2, screenSize.height - 80));
-  this->addChild(label);
+  // ---------------------------------------------------------
+  // [²âÊÔ´úÂë] Ìí¼ÓÒ»¸öÁÙÊ±°´Å¥À´²âÊÔ "ÏûºÄ½ð±ÒÉý¼¶"
+  // Êµ¼ÊÏîÄ¿ÖÐÕâ»áÔÚ UI ²ãµÄµã»÷ÊÂ¼þÀï
+  auto testBtn = MenuItemLabel::create(
+    Label::createWithTTF("Test Upgrade (-500 Gold)", "fonts/Marker Felt.ttf", 20),
+    [=](Ref* sender) {
+    // µã»÷»Øµ÷£º³¢ÊÔÏûºÄ 500 ½ð±Ò
+    bool result = _upgradeController->tryUpgrade(500, true);
+    if (result) {
+      // Èç¹û³É¹¦£¬¿ÉÒÔÔÚÕâÀï²¥·ÅÒôÐ§µÈ
+      log("Button Clicked: Upgrade Started");
+    }
+  }
+  );
+  testBtn->setPosition(Vec2(0, -100)); // ·ÅÔÚÆÁÄ»ÖÐÐÄÆ«ÏÂ
+  auto menu = Menu::create(testBtn, nullptr);
+  this->addChild(menu, 10);
 
   return true;
+}
+
+// ÓÎÏ·Ö÷Ñ­»·
+void VillageScene::update(float dt) {
+  // 1. ÈÃ×ÊÔ´¿ØÖÆÆ÷¼ÆËã²ú³ö
+  if (_resourceController) {
+    _resourceController->update(dt);
+  }
+
+  // 2. ´Ó Model »ñÈ¡×îÐÂÊý¾Ý
+  auto data = PlayerData::getInstance();
+
+  // 3. Ë¢ÐÂ UI ÏÔÊ¾
+  if (_hudLayer) {
+    _hudLayer->updateResourceDisplay(data->getGold(), data->getElixir());
+  }
 }
