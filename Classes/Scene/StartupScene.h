@@ -1,28 +1,30 @@
-/*******************
- * StartupScene: 启动等待动画
- *******************/
-
-#pragma once
-#ifndef _STARTUP_SCENE_H_
-#define _STARTUP_SCENE_H_
+#ifndef __STARTUP_SCENE_H__
+#define __STARTUP_SCENE_H__
 
 #include "cocos2d.h"
-
-/*
- * Class Name : StartupScene
- * Class Function : 启动等待动画
-*/ 
+#include "ui/CocosGUI.h"
 
 class StartupScene : public cocos2d::Scene {
 public:
-    // 创建
     static cocos2d::Scene* createScene();
-
-    // 初始化
     virtual bool init();
-
-    // 
     CREATE_FUNC(StartupScene);
+
+private:
+    // --- 阶段一：Supercell Splash 元素 ---
+    cocos2d::LayerColor* _splashLayer; // 黑色背景层
+    cocos2d::Sprite* _logo;            // Supercell Logo
+    cocos2d::Label* _legalTextLabel;   // 动态法律文本
+
+    // --- 阶段二：Loading 元素 ---
+    cocos2d::Sprite* _loadingBg;       // 游戏加载图
+    cocos2d::ui::LoadingBar* _progressBar; // 进度条
+
+    // --- 逻辑函数 ---
+    void showSplashPhase();       // 显示 Logo 和文字
+    void showLoadingPhase(float dt); // 切换到加载条阶段
+    void updateLoadingBar(float dt); // 跑进度条逻辑
+    void goToVillageScene(float dt); // 跳转场景
 };
 
-#endif // !_STARTUP_SCENE_H_
+#endif // __STARTUP_SCENE_H__

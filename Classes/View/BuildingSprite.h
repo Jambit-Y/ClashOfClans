@@ -12,14 +12,14 @@ public:
   // 初始化
   bool initWithBuilding(Building* building);
 
-  // 获取绑定的数据模型
+  // 获取绑定的建筑模型
   Building* getBuildingData() { return _buildingData; }
 
-  // 根据数据模型，更新 Sprite 在屏幕上的位置
+  // 根据网格模型，更新 Sprite 显示在屏幕上的位置
   void updatePositionFromGrid();
 
 private:
-  Building* _buildingData; // 绑定的数据引用
+  Building* _buildingData; // 绑定的建筑数据
 };
 
 #endif // __BUILDING_SPRITE_H__

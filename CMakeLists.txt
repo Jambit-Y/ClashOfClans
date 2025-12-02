@@ -56,7 +56,9 @@ list(APPEND GAME_SOURCE
      Classes/Model/PlayerData.cpp
      Classes/Controller/ResourceController.cpp
      Classes/Controller/UpgradeController.cpp
+     Classes/Controller/BuildingController.cpp
      Classes/System/GridMap.cpp
+     Classes/System/ResourceConfig.cpp
      Classes/Model/Building.cpp
      Classes/View/BuildingSprite.cpp
      )
@@ -69,7 +71,9 @@ list(APPEND GAME_HEADER
      Classes/Model/PlayerData.h
      Classes/Controller/ResourceController.h
      Classes/Controller/UpgradeController.h
+     Classes/Controller/BuildingController.h
      Classes/System/GridMap.h
+     Classes/System/ResourceConfig.h
      Classes/Model/Building.h
      Classes/View/BuildingSprite.h
      )
