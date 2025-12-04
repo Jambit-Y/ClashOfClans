@@ -5,18 +5,18 @@
 
 class VillageLayer : public cocos2d::Layer {
 private:
-  // ç¼©æ”¾å¸¸é‡
-  static const float MIN_SCALE;
+  // Ëõ·Å³£Á¿
+   float _minScale;
   static const float MAX_SCALE;
   static const float ZOOM_SPEED;
 
-  // åœ°å›¾ç²¾çµ
+  // µØÍ¼¾«Áé
   cocos2d::Sprite* _mapSprite;
 
-  // ç¼©æ”¾çŠ¶æ€
+  // Ëõ·Å×´Ì¬
   float _currentScale;
 
-  // æ‹–åŠ¨çŠ¶æ€
+  // ÍÏ¶¯×´Ì¬
   cocos2d::Vec2 _touchStartPos;
   cocos2d::Vec2 _layerStartPos;
 
@@ -25,15 +25,16 @@ public:
   CREATE_FUNC(VillageLayer);
 
 private:
-  // ========== åˆå§‹åŒ–æ–¹æ³• ==========
+  // ========== ³õÊ¼»¯·½·¨ ==========
+  void calculateMinScale();
   void initializeBasicProperties();
   void setupEventHandling();
 
-  // ========== è¾…åŠ©æ–¹æ³• ==========
+  // ========== ¸¨Öú·½·¨ ==========
   cocos2d::Sprite* createMapSprite();
   cocos2d::Vec2 calculateCenterPosition();
-
-  // ========== è§¦æ‘¸äº‹ä»¶ï¼ˆæ‹–åŠ¨ï¼‰ ==========
+  void focusOnRect(const cocos2d::Vec2& leftBottom, const cocos2d::Vec2& rightTop);
+  // ========== ´¥ÃşÊÂ¼ş£¨ÍÏ¶¯£© ==========
   void setupTouchHandling();
   bool onTouchBegan(cocos2d::Touch* touch, cocos2d::Event* event);
   void onTouchMoved(cocos2d::Touch* touch, cocos2d::Event* event);
@@ -43,13 +44,14 @@ private:
   void handleMapDragging(cocos2d::Touch* touch);
   cocos2d::Vec2 clampMapPosition(const cocos2d::Vec2& position);
 
-  // ========== é¼ æ ‡äº‹ä»¶ï¼ˆç¼©æ”¾ï¼‰ ==========
+  // ========== Êó±êÊÂ¼ş£¨Ëõ·Å£© ==========
   void setupMouseHandling();
   void onMouseScroll(cocos2d::Event* event);
-
   float calculateNewScale(float scrollDelta);
-  cocos2d::Vec2 getAdjustedMousePosition(cocos2d::EventMouse* mouseEvent);
-  void applyZoomAroundPoint(const cocos2d::Vec2& screenPoint, float newScale);
+  void applyZoomAtAnchor(float newScale);
+
+  // µ÷ÊÔ£º»æÖÆÃªµã»î¶¯·¶Î§
+  void drawAnchorMovementRange();
 };
 
 #endif

@@ -1,11 +1,11 @@
 #include "VillageLayer.h"
-
+#include "../proj.win32/Constants.h"
+#include <iostream>
 USING_NS_CC;
 
 // 静态常量定义
-const float VillageLayer::MIN_SCALE = 0.5f;
-const float VillageLayer::MAX_SCALE = 2.0f;
-const float VillageLayer::ZOOM_SPEED = 0.1f;
+const float VillageLayer::MAX_SCALE = 3.0f;  // 最大放大倍率
+const float VillageLayer::ZOOM_SPEED = 0.1f; // 缩放的速率
 
 bool VillageLayer::init() {
   if (!Layer::init()) {
@@ -19,88 +19,73 @@ bool VillageLayer::init() {
   }
   this->addChild(_mapSprite);
 
-  // 2. 设置Layer的内容大小为地图大小
-  this->setContentSize(_mapSprite->getContentSize());
-
-  // 3. 初始化缩放和位置
+  // 2. 初始化位置
   initializeBasicProperties();
 
-  // 4. 设置事件处理
+  // 3. 设置事件处理
   setupEventHandling();
 
   return true;
 }
 
 #pragma region 初始化方法
-
-void VillageLayer::initializeBasicProperties() {
+void VillageLayer::calculateMinScale() {
   auto visibleSize = Director::getInstance()->getVisibleSize();
   auto mapSize = this->getContentSize();
-
-  // 计算合适的初始缩放，让地图适配窗口
+  
+  // 计算使地图完全覆盖屏幕所需的最小缩放值
+  // 取宽度和高度缩放比的最大值，确保地图的两个方向都能覆盖屏幕
   float scaleX = visibleSize.width / mapSize.width;
   float scaleY = visibleSize.height / mapSize.height;
   
-  // 使用较小的缩放值，确保地图完全可见
-  float initialScale = std::min(scaleX, scaleY) * 0.9f; // 留10%边距
+  _minScale = std::max(scaleX, scaleY);
   
-  // 限制在允许范围内
-  _currentScale = clampf(initialScale, MIN_SCALE, MAX_SCALE);
-  this->setScale(_currentScale);
+  CCLOG("Screen: %.0fx%.0f, Map: %.0fx%.0f", 
+        visibleSize.width, visibleSize.height,
+        mapSize.width, mapSize.height);
+  CCLOG("Scale ratios - X: %.3f, Y: %.3f", scaleX, scaleY);
+  CCLOG("Calculated MIN_SCALE: %.3f (地图始终覆盖屏幕)", _minScale);
+}
 
-  // 计算居中位置
-  Vec2 initialPos = calculateCenterPosition();
+void VillageLayer::initializeBasicProperties() {
+	auto mapSize = _mapSprite->getContentSize();
+  this->setContentSize(mapSize);
+  this->setAnchorPoint(Vec2::ANCHOR_MIDDLE);
+  _mapSprite->setPosition(0, 0);
+  Vec2 initialPos = Director::getInstance()->getVisibleSize() / 2;
+  //initialPos = clampMapPosition(initialPos);
   this->setPosition(initialPos);
 
+  calculateMinScale();
   CCLOG("VillageLayer initialized:");
-  CCLOG("  Map size: %.0f x %.0f", mapSize.width, mapSize.height);
-  CCLOG("  Window size: %.0f x %.0f", visibleSize.width, visibleSize.height);
-  CCLOG("  Initial scale: %.2f", _currentScale);
-  CCLOG("  Initial position: (%.0f, %.0f)", initialPos.x, initialPos.y);
+  CCLOG("  Scale: %.3f (range: %.3f - %.3f)", _currentScale, _minScale, MAX_SCALE);
+  CCLOG("  Layer position: (%.2f, %.2f)", this->getPosition().x, this->getPosition().y);
 }
 
 void VillageLayer::setupEventHandling() {
-  setupTouchHandling();
-  setupMouseHandling();
+  setupTouchHandling(); // 拖动
+  setupMouseHandling(); // 缩放
 }
-
 #pragma endregion
 
 #pragma region 辅助方法
-
 Sprite* VillageLayer::createMapSprite() {
   auto mapSprite = Sprite::create("Scene/LinedVillageScene.jpg");
   if (!mapSprite) {
-    // 如果找不到图片则创建占位符
-    mapSprite = Sprite::create();
-    mapSprite->setTextureRect(Rect(0, 0, 3705, 2545));
-    mapSprite->setColor(Color3B(50, 150, 50));
+    CCLOG("Error: Failed to load map image");
+    return nullptr;
   }
-
-  // 设置锚点为左下角，位置为原点
-  mapSprite->setAnchorPoint(Vec2::ZERO);
-  mapSprite->setPosition(Vec2::ZERO);
-
+  
+  mapSprite->setAnchorPoint(Vec2::ANCHOR_MIDDLE);
   return mapSprite;
 }
 
 Vec2 VillageLayer::calculateCenterPosition() {
-  auto visibleSize = Director::getInstance()->getVisibleSize();
-  
-  // 获取缩放后的地图实际显示大小
-  Size scaledMapSize = this->getContentSize() * this->getScale();
-
-  // 计算居中位置（Layer的锚点默认是(0,0)）
-  float x = (visibleSize.width - scaledMapSize.width) / 2.0f;
-  float y = (visibleSize.height - scaledMapSize.height) / 2.0f;
-
-  return Vec2(x, y);
+  return Director::getInstance()->getVisibleSize() / 2.0f;
 }
-
 #pragma endregion
 
-#pragma region 触摸事件处理
-
+#pragma region 触摸事件处理（拖动）
 void VillageLayer::setupTouchHandling() {
   auto listener = EventListenerTouchOneByOne::create();
   listener->setSwallowTouches(true);
@@ -114,7 +99,6 @@ void VillageLayer::setupTouchHandling() {
 
 bool VillageLayer::onTouchBegan(Touch* touch, Event* event) {
   storeTouchStartState(touch);
-  CCLOG("VillageLayer: Map drag started");
   return true;
 }
 
@@ -123,12 +107,15 @@ void VillageLayer::onTouchMoved(Touch* touch, Event* event) {
 }
 
 void VillageLayer::onTouchEnded(Touch* touch, Event* event) {
-  CCLOG("VillageLayer: Map drag ended");
+  // 拖动结束
 }
 
 void VillageLayer::storeTouchStartState(Touch* touch) {
   _touchStartPos = touch->getLocation();
   _layerStartPos = this->getPosition();
+	CCLOG("Touch began at (%.2f, %.2f), Layer start pos (%.2f, %.2f)",
+        _touchStartPos.x, _touchStartPos.y,
+        _layerStartPos.x, _layerStartPos.y);
 }
 
 void VillageLayer::handleMapDragging(Touch* touch) {
@@ -136,51 +123,80 @@ void VillageLayer::handleMapDragging(Touch* touch) {
   Vec2 delta = currentTouchPos - _touchStartPos;
   Vec2 newPos = _layerStartPos + delta;
 
-  // 应用边界约束
   newPos = clampMapPosition(newPos);
   this->setPosition(newPos);
 }
 
 Vec2 VillageLayer::clampMapPosition(const Vec2& position) {
   auto visibleSize = Director::getInstance()->getVisibleSize();
-  Size scaledMapSize = this->getContentSize() * this->getScale();
+  auto layerSize = this->getContentSize() * this->getScale();
 
-  float clampedX = position.x;
-  float clampedY = position.y;
+  float halfLayerWidth = layerSize.width / 2.0f;
+  float halfLayerHeight = layerSize.height / 2.0f;
+  
+  float clampedX, clampedY;
 
-  // X轴边界处理
-  if (scaledMapSize.width <= visibleSize.width) {
-    // 地图比窗口小，居中显示
-    clampedX = (visibleSize.width - scaledMapSize.width) / 2.0f;
-  } else {
-    // 地图比窗口大，限制拖动范围
-    // 最小X：地图右边缘对齐窗口右边缘
-    float minX = visibleSize.width - scaledMapSize.width;
-    // 最大X：地图左边缘对齐窗口左边缘
-    float maxX = 0.0f;
-    clampedX = clampf(position.x, minX, maxX);
-  }
+  // ==================== X 轴约束 ====================
+  // 由于 minScale 保证地图始终覆盖屏幕，这里的逻辑简化
+  // 地图宽度总是 >= 屏幕宽度
+  float maxX = halfLayerWidth;
+  float minX = visibleSize.width - halfLayerWidth;
+  clampedX = clampf(position.x, minX, maxX);
 
-  // Y轴边界处理
-  if (scaledMapSize.height <= visibleSize.height) {
-    // 地图比窗口小，居中显示
-    clampedY = (visibleSize.height - scaledMapSize.height) / 2.0f;
-  } else {
-    // 地图比窗口大，限制拖动范围
-    // 最小Y：地图顶边缘对齐窗口顶边缘
-    float minY = visibleSize.height - scaledMapSize.height;
-    // 最大Y：地图底边缘对齐窗口底边缘
-    float maxY = 0.0f;
-    clampedY = clampf(position.y, minY, maxY);
-  }
+  // ==================== Y 轴约束 ====================
+  // 地图高度总是 >= 屏幕高度
+  float maxY = halfLayerHeight;
+  float minY = visibleSize.height - halfLayerHeight;
+  clampedY = clampf(position.y, minY, maxY);
 
   return Vec2(clampedX, clampedY);
 }
 
+void VillageLayer::drawAnchorMovementRange() {
+  auto visibleSize = Director::getInstance()->getVisibleSize();
+  auto layerSize = this->getContentSize() * this->getScale();
+
+  float halfLayerWidth = layerSize.width / 2.0f;
+  float halfLayerHeight = layerSize.height / 2.0f;
+
+  float maxX = halfLayerWidth;
+  float minX = visibleSize.width - halfLayerWidth;
+  float maxY = halfLayerHeight;
+  float minY = visibleSize.height - halfLayerHeight;
+
+  // 绘制活动范围矩形
+  auto drawNode = DrawNode::create();
+  this->getParent()->addChild(drawNode, 999);
+
+  Vec2 rect[5] = {
+    Vec2(minX, minY),
+    Vec2(maxX, minY),
+    Vec2(maxX, maxY),
+    Vec2(minX, maxY),
+    Vec2(minX, minY)
+  };
+
+  drawNode->drawPoly(rect, 5, false, Color4F(1.0f, 0.0f, 0.0f, 1.0f));
+  drawNode->drawSolidCircle(this->getPosition(), 5.0f, 0, 20,
+                            Color4F(0.0f, 1.0f, 0.0f, 1.0f));
+
+	CCLOG("Current Layer Position: (%.2f, %.2f)", this->getPosition().x, this->getPosition().y);
+  CCLOG("Anchor range: [%.1f, %.1f] x [%.1f, %.1f]", minX, maxX, minY, maxY);
+  CCLOG("Range size: %.1f x %.1f", maxX - minX, maxY - minY);
+}
+
+float VillageLayer::calculateNewScale(float scrollDelta) {
+  // 基于滚轮增量的线性缩放：向上滚动放大，向下滚动缩小
+  float newScale = _currentScale + scrollDelta * ZOOM_SPEED;
+
+  // 使用动态计算的 _minScale（确保地图始终覆盖屏幕）与 MAX_SCALE 进行范围限制
+  newScale = clampf(newScale, _minScale, MAX_SCALE);
+
+  return newScale;
+}
 #pragma endregion
 
 #pragma region 鼠标事件处理（缩放）
-
 void VillageLayer::setupMouseHandling() {
   auto mouseListener = EventListenerMouse::create();
   mouseListener->onMouseScroll = CC_CALLBACK_1(VillageLayer::onMouseScroll, this);
@@ -191,58 +207,32 @@ void VillageLayer::onMouseScroll(Event* event) {
   EventMouse* mouseEvent = static_cast<EventMouse*>(event);
   float scrollY = mouseEvent->getScrollY();
 
-  // 计算新的缩放值
   float newScale = calculateNewScale(scrollY);
   if (std::abs(newScale - _currentScale) < 0.01f) {
-    return; // 缩放值没有实质变化
+    return;
   }
 
-  // 获取鼠标在屏幕上的位置
-  Vec2 mousePos = getAdjustedMousePosition(mouseEvent);
-  
-  // 以鼠标位置为中心进行缩放
-  applyZoomAroundPoint(mousePos, newScale);
+  // 简化：始终以锚点（Layer中心）为中心缩放
+  applyZoomAtAnchor(newScale);
 }
 
-float VillageLayer::calculateNewScale(float scrollDelta) {
-  // 向上滚动（scrollDelta > 0）放大，向下滚动缩小
-  float newScale = _currentScale + scrollDelta * ZOOM_SPEED;
-  return clampf(newScale, MIN_SCALE, MAX_SCALE);
-}
+void VillageLayer::applyZoomAtAnchor(float newScale) {
+  // 记录旧缩放
+  const float oldScale = _currentScale;
 
-Vec2 VillageLayer::getAdjustedMousePosition(EventMouse* mouseEvent) {
-  // 获取鼠标在窗口中的位置（左上角为原点）
-  Vec2 mousePos = mouseEvent->getLocationInView();
-  
-  // 转换为Cocos2d坐标系（左下角为原点）
-  auto visibleSize = Director::getInstance()->getVisibleSize();
-  mousePos.y = visibleSize.height - mousePos.y;
-  
-  return mousePos;
-}
-
-void VillageLayer::applyZoomAroundPoint(const Vec2& screenPoint, float newScale) {
-  // 1. 将屏幕坐标转换为Layer的本地坐标（缩放前）
-  Vec2 pointInLayer = this->convertToNodeSpace(screenPoint);
-
-  // 2. 应用新的缩放
-  float oldScale = _currentScale;
+  // 直接设置新缩放（锚点在中心，缩放围绕锚点进行）
+  this->setScale(newScale);
   _currentScale = newScale;
-  this->setScale(_currentScale);
 
-  // 3. 计算缩放后，该点在世界坐标系中的新位置
-  Vec2 pointInWorldAfterScale = this->convertToWorldSpace(pointInLayer);
-
-  // 4. 计算需要的偏移量，使该点保持在原来的屏幕位置
-  Vec2 offset = screenPoint - pointInWorldAfterScale;
-
-  // 5. 应用偏移并限制边界
-  Vec2 newPos = this->getPosition() + offset;
-  newPos = clampMapPosition(newPos);
+  // 缩放后应用边界约束（保证地图不露白）
+  Vec2 newPos = clampMapPosition(this->getPosition());
   this->setPosition(newPos);
 
-  CCLOG("Zoom: %.2f -> %.2f at screen point (%.0f, %.0f)", 
-        oldScale, newScale, screenPoint.x, screenPoint.y);
-}
+  CCLOG("Zoom(center anchor): %.3f -> %.3f (range: %.3f - %.3f)",
+        oldScale, newScale, _minScale, MAX_SCALE);
 
+  #ifdef COCOS2D_DEBUG
+  drawAnchorMovementRange();
+  #endif
+}
 #pragma endregion

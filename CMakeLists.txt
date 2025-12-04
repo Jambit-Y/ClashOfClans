@@ -56,6 +56,7 @@ list(APPEND GAME_SOURCE
      Classes/Model/PlayerData.cpp
      )
 list(APPEND GAME_HEADER
+     ../proj.win32/Constants.h
      Classes/AppDelegate/AppDelegate.h
      Classes/Scene/StartupScene.h
      Classes/Scene/VillageScene.h
@@ -76,11 +77,10 @@ elseif(LINUX)
          )
 elseif(WINDOWS)
     list(APPEND GAME_HEADER
-         proj.win32/main.h
          proj.win32/resource.h
          )
     list(APPEND GAME_SOURCE
-         proj.win32/main.cpp
+         proj.win32/GameMain.cpp
          proj.win32/game.rc
          ${common_res_files}
          )
