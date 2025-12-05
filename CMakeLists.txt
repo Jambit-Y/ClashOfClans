@@ -53,12 +53,12 @@ list(APPEND GAME_SOURCE
      Classes/Scene/VillageScene.cpp
      Classes/Layer/VillageLayer.cpp
      Classes/Layer/HUDLayer.cpp
+     Classes/Controller/InputController.cpp
      Classes/Manager/ResourceManager.cpp
      Classes/Manager/SaveManager.cpp
      Classes/Manager/BuildingDataManager.cpp
      Classes/Model/GameSaveData.cpp
      Classes/Model/ResourceProducer.cpp
-     Classes/Model/Building.cpp
      Classes/Util/GridMapUtils.cpp
      Classes/Util/JsonUtils.cpp
      Classes/Util/TimeUtils.cpp
@@ -70,6 +70,7 @@ list(APPEND GAME_HEADER
      Classes/Scene/VillageScene.h
      Classes/Layer/VillageLayer.h
      Classes/Layer/HUDLayer.h
+     Classes/Controller/InputController.h
      Classes/Manager/ResourceManager.h
      Classes/Manager/SaveManager.h
      Classes/Manager/BuildingDataManager.h

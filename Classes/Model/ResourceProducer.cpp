@@ -22,7 +22,7 @@ Building* Building::createTownHall(int id, int gridX, int gridY) {
 }
 
 Building* Building::createCannon(int id, int gridX, int gridY) {
-    auto* building = new Building(id, Type::CANNON, 2, 2);
+    auto* building = new Building(id, Type::CANNON, 3, 3);
     building->setGridPosition(gridX, gridY);
     building->setState(State::PLACED);
     return building;
