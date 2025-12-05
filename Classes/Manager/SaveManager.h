@@ -2,7 +2,7 @@
 #define __SAVE_MANAGER_H__
 
 #include "cocos2d.h"
-#include "../Model/GameData/GameSaveData.h"
+#include "../Model/GameSaveData.h"
 
 class SaveManager {
 public:

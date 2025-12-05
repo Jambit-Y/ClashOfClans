@@ -19,9 +19,8 @@ public:
   int getElixir() const { return _elixir; }
   int getGems() const { return _gems; }
 
-  void setGold(int amount) { _gold = amount; notifyResourceChanged(); }
-  void setElixir(int amount) { _elixir = amount; notifyResourceChanged(); }
-
+  void setGold(int amount);
+  void setElixir(int amount);
   // ±£¥Ê/º”‘ÿ
   void saveResources();
   void loadResources();

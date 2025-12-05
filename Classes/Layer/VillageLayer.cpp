@@ -188,8 +188,8 @@ void VillageLayer::onMouseScroll(Event* event) {
 }
 
 float VillageLayer::calculateNewScale(float scrollDelta) {
-  // 使用指数缩放，让缩放感觉更自然
-  float scaleFactor = 1.0f + (scrollDelta * ZOOM_SPEED);
+  // 反转滚轮方向：向上滚动缩小，向下滚动放大
+  float scaleFactor = 1.0f + (-scrollDelta * ZOOM_SPEED);  // 添加负号反转方向
   float newScale = _currentScale * scaleFactor;
 
   // 限制缩放范围
