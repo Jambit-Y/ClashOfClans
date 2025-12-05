@@ -56,13 +56,9 @@ list(APPEND GAME_SOURCE
      Classes/Layer/HUDLayer.cpp
      Classes/Controller/InputController.cpp
      Classes/Manager/ResourceManager.cpp
-     Classes/Manager/SaveManager.cpp
-     Classes/Manager/BuildingDataManager.cpp
-     Classes/Model/GameSaveData.cpp
-     Classes/Model/ResourceProducer.cpp
+     Classes/Manager/VillageDataManager.cpp
+     Classes/Model/VillageData.cpp
      Classes/Util/GridMapUtils.cpp
-     Classes/Util/JsonUtils.cpp
-     Classes/Util/TimeUtils.cpp
      )
 list(APPEND GAME_HEADER
      ../proj.win32/Constants.h
@@ -73,15 +69,9 @@ list(APPEND GAME_HEADER
      Classes/Layer/VillageLayer.h
      Classes/Layer/HUDLayer.h
      Classes/Controller/InputController.h
-     Classes/Manager/ResourceManager.h
-     Classes/Manager/SaveManager.h
-     Classes/Manager/BuildingDataManager.h
-     Classes/Model/GameSaveData.h
-     Classes/Model/ResourceProducer.h
-     Classes/Model/Building.h
+     Classes/Manager/VillageDataManager.h
+     Classes/Model/VillageData.h
      Classes/Util/GridMapUtils.h
-     Classes/Util/JsonUtils.h
-     Classes/Util/TimeUtils.h
      )
 
 if(ANDROID)
@@ -97,6 +87,7 @@ elseif(LINUX)
 elseif(WINDOWS)
     list(APPEND GAME_HEADER
          proj.win32/resource.h
+         proj.win32/Constants.h
          )
     list(APPEND GAME_SOURCE
          proj.win32/GameMain.cpp
