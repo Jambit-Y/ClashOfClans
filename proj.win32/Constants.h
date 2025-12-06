@@ -1,16 +1,22 @@
 #ifndef _CONSTANT_H_
 #define _CONSTANT_H_
+#include "cocos2d.h"
 
 #define COCOS2D_DEBUG 1
+
 const float VILLAGE_IMAGE_WIDTH = 3705.0;
 const float VILLAGE_IMAGE_HEIGHT = 2545.0;
 
-const float VILLAGE_BUILDING_AREA_LEFT_BOTTOM_X = 600.0; // 建筑区域左下角X坐标
-const float VILLAGE_BUILDING_AREA_LEFT_BOTTOM_Y = 345.0; // 建筑区域左下角Y坐标
+const cocos2d::Vec2 GRID_LEFT_POINT = cocos2d::Vec2(660.0f, 1371.0f); // 网格左顶点坐标
+const cocos2d::Vec2 GRID_RIGHT_POINT = cocos2d::Vec2(3128.0f, 1371.0f); // 网格右顶点坐标
+const cocos2d::Vec2 GRID_TOP_POINT = cocos2d::Vec2(1893.0f, 2293.0f); // 网格上顶点坐标
+const cocos2d::Vec2 GRID_BOTTOM_POINT = cocos2d::Vec2(1893.0f, 445.0f); // 网格下顶点坐标
 
-const float VILLAGE_BUILDING_AREA_RIGHT_BOTTOM_X = 3220.0; // 建筑区域右上角X坐标
-const float VILLAGE_BUILDING_AREA_RIGHT_BOTTOM_Y = 2400.0; // 建筑区域右上角Y坐标
+const float VERT_DIAGONAL_LENGTH = (2293.0f - 445.0f) / 44.0f; // 菱形竖直对角线
+const float HORIZ_DIAGONAL_LENGTH = (3128.0f - 660.0f) / 44.0f; // 菱形横向对角线
 
+const cocos2d::Vec2 VEC_X_NORMALIZED = (GRID_BOTTOM_POINT - GRID_LEFT_POINT).getNormalized(); // 网格X轴方向单位向量
+const cocos2d::Vec2 VEC_Y_NORMALIZED = (GRID_TOP_POINT - GRID_LEFT_POINT).getNormalized(); // 网格Y轴方向单位向量
 
 
 #endif // !_CONSTANT_H_
