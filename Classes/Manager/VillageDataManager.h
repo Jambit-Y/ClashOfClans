@@ -29,6 +29,10 @@ public:
 private:
   VillageDataManager();
   ~VillageDataManager();
+
+  // 新增：通知资源变化
+  void notifyResourceChanged();
+
   static VillageDataManager* _instance;
   VillageData _data;
   int _nextBuildingId;
