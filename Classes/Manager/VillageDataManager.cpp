@@ -49,12 +49,16 @@ int VillageDataManager::getElixir() const {
 void VillageDataManager::addGold(int amount) {
   if (amount <= 0) return;
   _data.gold += amount;
+  // 触发资源变化事件
+  notifyResourceChanged();
   CCLOG("Gold added: +%d (Total: %d)", amount, _data.gold);
 }
 
 void VillageDataManager::addElixir(int amount) {
   if (amount <= 0) return;
   _data.elixir += amount;
+  // 触发资源变化事件
+  notifyResourceChanged();
   CCLOG("Elixir added: +%d (Total: %d)", amount, _data.elixir);
 }
 
@@ -65,6 +69,8 @@ bool VillageDataManager::spendGold(int amount) {
     return false;
   }
   _data.gold -= amount;
+  // 触发资源变化事件
+  notifyResourceChanged();
   CCLOG("Gold spent: -%d (Remaining: %d)", amount, _data.gold);
   return true;
 }
@@ -76,8 +82,15 @@ bool VillageDataManager::spendElixir(int amount) {
     return false;
   }
   _data.elixir -= amount;
+  // 触发资源变化事件
+  notifyResourceChanged();
   CCLOG("Elixir spent: -%d (Remaining: %d)", amount, _data.elixir);
   return true;
+}
+// 通知资源变化
+void VillageDataManager::notifyResourceChanged() {
+  cocos2d::EventCustom event("EVENT_RESOURCE_CHANGED");
+  cocos2d::Director::getInstance()->getEventDispatcher()->dispatchEvent(&event);
 }
 #pragma endregion
 
