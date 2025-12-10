@@ -64,20 +64,6 @@ bool VillageLayer::init() {
   CCLOG("  - MoveBuildingController added first (higher priority)");
   CCLOG("  - MoveMapController added second (lower priority)");
 
-  // 每隔3格生成一个野蛮人（会生成大约 15x15 = 225 个）
-  int spacing = 3;
-  int count = 0;
-
-  for (int gridY = 0; gridY < 44; gridY += spacing) {
-    for (int gridX = 0; gridX < 44; gridX += spacing) {
-      auto barbarian = BattleUnitSprite::create("Barbarian");
-      barbarian->teleportToGrid(gridX, gridY);
-      barbarian->playIdleAnimation();
-      this->addChild(barbarian);
-      count++;
-    }
-  }
-
   // ===== 野蛮人测试序列 =====
 
   // 创建野蛮人，初始位置 (0, 0)
