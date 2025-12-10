@@ -278,9 +278,9 @@ void ShopLayer::addShopItem(const ShopItemData& data, int index) {
 
 std::vector<ShopItemData> ShopLayer::getDummyData(int categoryIndex) {
     std::vector<ShopItemData> list;
-    std::string root = "UI/Shop/"; // 请确保这个路径下有对应的图片资源
+    std::string root = "UI/Shop/"; 
 
-    if (categoryIndex == 0) { // 军队
+    if (categoryIndex == 0) { // 军队1
         std::string path = root + "military_architecture/";
         list.push_back({ 101, "兵营",       path + "Army_Camp1.png",    250,  "圣水", "5分钟" });
         list.push_back({ 102, "训练营",     path + "Barracks1.png",     200,  "圣水", "1分钟" });
