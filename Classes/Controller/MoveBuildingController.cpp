@@ -13,7 +13,10 @@ MoveBuildingController::MoveBuildingController(Layer* layer, BuildingManager* bu
     , _movingBuildingId(-1)
     , _touchListener(nullptr)
     , _isDragging(false)
-    , _touchStartPos(Vec2::ZERO) {
+    , _touchStartPos(Vec2::ZERO)
+    , _touchDownTime(0.0f)        // ✅ 初始化
+    , _isLongPressTriggered(false)   // ✅ 初始化
+    , _touchedBuildingId(-1) {          // ✅ 初始化
     CCLOG("MoveBuildingController: Initialized");
 }
 
@@ -90,95 +93,120 @@ void MoveBuildingController::cancelMoving() {
 
 #pragma region 触摸事件处理
 bool MoveBuildingController::onTouchBegan(Touch* touch, Event* event) {
-    // 保存触摸起始位置
+    // 保存触摸起始位置和时间
     _touchStartPos = touch->getLocation();
     _isDragging = false;
+    _isLongPressTriggered = false;
+    _touchDownTime = Director::getInstance()->getTotalFrames() / 60.0f;  // 获取当前时间（秒）
     
-    // 如果已经在移动状态，吞噬事件继续拖动
+    // ========== 情况1: 已经在移动状态 =========="
     if (_isMoving) {
-        CCLOG("MoveBuildingController: Touch began at (%.0f, %.0f) - Ready to drag", 
-              _touchStartPos.x, _touchStartPos.y);
-        return true;  // 吞噬事件
+      CCLOG("MoveBuildingController: Already in move mode, continue dragging");
+        return true;  // 吞噬事件，继续拖动
     }
     
-    // 如果不在移动状态，检查是否点击到建筑
+    // ========== 情况2: 检查是否点击到建筑 =========
     Vec2 worldPos = _parentLayer->convertToNodeSpace(_touchStartPos);
     auto building = _buildingManager->getBuildingAtWorldPos(worldPos);
     
     if (building) {
-        // 点击到建筑，立即进入移动模式
-        CCLOG("MoveBuildingController: Touch on building ID=%d, entering move mode", building->getBuildingId());
-        startMoving(building->getBuildingId());
-        return true;  // 吞噬事件
+        // ✅ 点击到建筑，记录建筑ID，但不立即进入移动模式
+        _touchedBuildingId = building->getBuildingId();
+        CCLOG("MoveBuildingController: Touched building ID=%d, waiting for long press", _touchedBuildingId);
+        
+        // ✅ 启动定时器检测长按
+        _parentLayer->schedule([this](float dt) {
+            if (checkLongPress()) {
+      CCLOG("MoveBuildingController: Long press detected! Starting move mode");
+                startMoving(_touchedBuildingId);
+                _isLongPressTriggered = true;
+      
+    // 停止定时器
+            _parentLayer->unschedule("long_press_check");
+    }
+        }, 0.05f, "long_press_check");  // 每0.05秒检查一次
+        
+    return true;  // ✅ 吞噬事件（防止地图移动）
     }
     
-    // 没点击到建筑，不吞噬事件，让 InputController 处理
-    return false;
+    // ========== 情況3: 没有点击到建筑 =========
+  _touchedBuildingId = -1;
+    return false;  // 不吞噬事件，让 MoveMapController 处理地图拖动
 }
 
 void MoveBuildingController::onTouchMoved(Touch* touch, Event* event) {
-    if (!_isMoving || _movingBuildingId < 0) {
-        return;
-    }
-    
-    // 检查是否真的在拖动（移动距离超过阈值）
     Vec2 currentPos = touch->getLocation();
     float distance = _touchStartPos.distance(currentPos);
     
-    CCLOG("MoveBuildingController::onTouchMoved - distance=%.2f, threshold=5.0", distance);
+const float DRAG_THRESHOLD = 5.0f;  // 5像素阈值
     
-    // 根据 Layer 缩放调整阈值
-    float scale = _parentLayer->getScale();
-    float adjustedThreshold = 5.0f * scale;  // 缩放时阈值也跟着变
-    
-    if (distance > adjustedThreshold) {
-        _isDragging = true;
-        CCLOG("MoveBuildingController::onTouchMoved - isDragging set to TRUE");
-    }
-    
-    // 只有真正拖动时才更新位置
-    if (_isDragging) {
-        // 将屏幕坐标转换为 Layer 内的世界坐标
-        Vec2 worldPos = _parentLayer->convertToNodeSpace(currentPos);
+    // ========== 情况1: 在移动状态，更新拖动 =========
+    if (_isMoving && _movingBuildingId >= 0) {
+        if (distance > DRAG_THRESHOLD) {
+      _isDragging = true;
+      CCLOG("MoveBuildingController::onTouchMoved - isDragging set to TRUE");
+        }
         
-        // 更新建筑预览位置
-        updatePreviewPosition(worldPos);
+        if (_isDragging) {
+            Vec2 worldPos = _parentLayer->convertToNodeSpace(currentPos);
+       updatePreviewPosition(worldPos);
+        }
+        return;
+    }
+  
+    // ========== 情况2: 还没触发长按，但手指移动了 =========
+    if (_touchedBuildingId >= 0 && !_isLongPressTriggered) {
+  if (distance > DRAG_THRESHOLD) {
+            // ✅ 手指移动超过阈值，取消长按检测
+    CCLOG("MoveBuildingController: Finger moved, cancelling long press check");
+            _parentLayer->unschedule("long_press_check");
+            _touchedBuildingId = -1;
+        }
     }
 }
 
 void MoveBuildingController::onTouchEnded(Touch* touch, Event* event) {
-    if (!_isMoving || _movingBuildingId < 0) {
-        return;
-    }
+    // 停止长按检测定时器
+    _parentLayer->unschedule("long_press_check");
     
-    CCLOG("MoveBuildingController: Touch ended - isDragging=%s", _isDragging ? "true" : "false");
-    
-    // 只有真正拖动过才完成移动
-    if (_isDragging) {
-        // 获取触摸点的屏幕坐标
-        Vec2 touchPos = touch->getLocation();
+    // ========== 情况1: 在移动状态，完成移动 =========
+    if (_isMoving && _movingBuildingId >= 0) {
+ CCLOG("MoveBuildingController: Touch ended - isDragging=%s", _isDragging ? "true" : "false");
         
-        // 将屏幕坐标转换为 Layer 内的世界坐标
-        Vec2 worldPos = _parentLayer->convertToNodeSpace(touchPos);
-        
-        // 完成建筑移动
-        bool success = completeMove(worldPos);
-        
-        if (success) {
-            CCLOG("MoveBuildingController: Building %d moved successfully", _movingBuildingId);
+        if (_isDragging) {
+            // 真的拖动过，完成移动
+     Vec2 touchPos = touch->getLocation();
+   Vec2 worldPos = _parentLayer->convertToNodeSpace(touchPos);
+   
+   bool success = completeMove(worldPos);
+CCLOG("MoveBuildingController: Building %d move %s", 
+_movingBuildingId, success ? "succeeded" : "failed");
         } else {
-            CCLOG("MoveBuildingController: Building %d move failed, restored", _movingBuildingId);
+        // 没有拖动，取消移动（恢复原位）
+     CCLOG("MoveBuildingController: No drag detected, cancelling move");
+   cancelMoving();
         }
         
-        // 移动完成后退出移动模式
+    // 重置状态
         _isMoving = false;
         _movingBuildingId = -1;
         _isDragging = false;
-    } else {
-        // ✅ 只是点击，没有拖动 -> 直接调用 cancelMoving()
-        CCLOG("MoveBuildingController: Just a tap, cancelling move (stay in place)");
-        cancelMoving();
+        return;
     }
+    
+    // ========== 情况2: 点击建筑但没有长按（短按）==========
+    if (_touchedBuildingId >= 0 && !_isLongPressTriggered) {
+        CCLOG("MoveBuildingController: Short tap on building ID=%d, triggering callback", _touchedBuildingId);
+  
+        // ✅ 触发短按回调
+   if (_onBuildingTapped) {
+       _onBuildingTapped(_touchedBuildingId);
+     }
+    }
+    
+    // 重置状态
+    _touchedBuildingId = -1;
+    _isLongPressTriggered = false;
 }
 #pragma endregion
 
@@ -224,7 +252,7 @@ bool MoveBuildingController::completeMove(const Vec2& worldPos) {
         return false;
     }
     
-    // 统一计算位置信息
+    // 统一计算位置信信息
     BuildingPositionInfo posInfo = calculatePositionInfo(worldPos, _movingBuildingId);
     
     // 检查是否可以放置
@@ -356,10 +384,10 @@ void MoveBuildingController::setupTouchListener() {
     _touchListener = EventListenerTouchOneByOne::create();
     _touchListener->setSwallowTouches(true);
     
-    _touchListener->onTouchBegan = CC_CALLBACK_2(MoveBuildingController::onTouchBegan, this);
+_touchListener->onTouchBegan = CC_CALLBACK_2(MoveBuildingController::onTouchBegan, this);
     _touchListener->onTouchMoved = CC_CALLBACK_2(MoveBuildingController::onTouchMoved, this);
     _touchListener->onTouchEnded = CC_CALLBACK_2(MoveBuildingController::onTouchEnded, this);
-    
+ 
     // ✅ 修复：使用 Scene Graph Priority（遵循渲染树层级）
     // 绑定到 _parentLayer，让 Cocos 自然决定事件优先级
     // UI 在上层 → 优先接收事件
@@ -367,4 +395,15 @@ void MoveBuildingController::setupTouchListener() {
     Director::getInstance()->getEventDispatcher()->addEventListenerWithSceneGraphPriority(_touchListener, _parentLayer);
     
     CCLOG("MoveBuildingController: Touch listener set up with Scene Graph Priority (respects UI layers)");
+}
+
+bool MoveBuildingController::checkLongPress() {
+    if (_touchedBuildingId < 0 || _isLongPressTriggered) {
+    return false;
+    }
+    
+    float currentTime = Director::getInstance()->getTotalFrames() / 60.0f;
+    float pressDuration = currentTime - _touchDownTime;
+    
+    return pressDuration >= LONG_PRESS_DURATION;
 }

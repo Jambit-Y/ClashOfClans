@@ -8,6 +8,7 @@
 #include "Sprite/BattleUnitSprite.h"
 #include "ui/CocosGUI.h"
 #include <iostream>
+#include "Layer/HUDLayer.h"
 
 USING_NS_CC;
 
@@ -32,6 +33,20 @@ bool VillageLayer::init() {
   // ✅ 4. 先初始化建筑移动控制器（优先级更高）
   _moveBuildingController = new MoveBuildingController(this, _buildingManager);
   _moveBuildingController->setupTouchListener();
+  
+  // ✅ 设置短按建筑回调
+  _moveBuildingController->setOnBuildingTappedCallback([this](int buildingId) {
+      CCLOG("VillageLayer: Building tapped ID=%d, showing menu", buildingId);
+    
+      // 获取 HUD 层并显示菜单
+   auto scene = this->getScene();
+      if (scene) {
+          auto hudLayer = dynamic_cast<HUDLayer*>(scene->getChildByTag(100));
+   if (hudLayer) {
+        hudLayer->showBuildingActions(buildingId);
+        }
+      }
+  });
 
   // ✅ 5. 后初始化地图移动控制器（优先级更低）
   _inputController = new MoveMapController(this);
@@ -261,22 +276,24 @@ void VillageLayer::cleanup() {
 void VillageLayer::onBuildingPurchased(int buildingId) {
   CCLOG("VillageLayer: 建筑已购买，ID=%d，准备放置", buildingId);
 
-  // TODO: 调用 MoveMapController 开始建筑放置模式
-  // _inputController->startBuildingPlacement(buildingId);
-
-  // 暂时的临时实现：直接放置到随机位置
   auto dataManager = VillageDataManager::getInstance();
   auto building = dataManager->getBuildingById(buildingId);
 
   if (building) {
-    // 临时：放置到 (0, 0) 位置
-    dataManager->setBuildingPosition(buildingId,0,0);
+    // ✅ 临时：放置到更明显的位置 (地图中心偏下)
+    dataManager->setBuildingPosition(buildingId, 10, 10);
+    
+    // ✅ 设置为正常状态 (BUILT)，而不是建造中
     dataManager->setBuildingState(buildingId,
-                                  BuildingInstance::State::CONSTRUCTING,
-                                  time(nullptr) + 60);  // 1分钟后完成
+ BuildingInstance::State::BUILT,
+             0);  // 无完成时间
 
     // 让 BuildingManager 创建精灵
     _buildingManager->addBuilding(*building);
+    
+    CCLOG("建筑已放置: ID=%d, 位置=(10,10), 状态=BUILT", buildingId);
+  } else {
+    CCLOG("错误: 无法获取建筑数据，ID=%d", buildingId);
   }
 }
 
@@ -316,37 +333,71 @@ BuildingSprite* VillageLayer::getBuildingAtScreenPos(const Vec2& screenPos) {
 
 // 设置输入回调
 void VillageLayer::setupInputCallbacks() {
-  CCLOG("VillageLayer: Setting up input callbacks");
-  
-  // ========== 回调 1: 点击检测（用于 MoveMapController 判断点击了什么）==========
-  _inputController->setOnTapCallback([this](const Vec2& screenPos) -> TapTarget {
-    auto building = getBuildingAtScreenPos(screenPos);
-    
-    if (building) {
-      CCLOG("VillageLayer: Tap detected on building ID=%d", building->getBuildingId());
-      return TapTarget::BUILDING;
-    }
-    
-    // TODO: 检测是否点击商店按钮
-    // if (isShopButtonClicked(screenPos)) {
-    //     return TapTarget::SHOP;
-    // }
-    
-    return TapTarget::NONE;
-  });
-  
-  // ========== 回调 2: 建筑选中（自动进入移动模式）==========
-  _inputController->setOnBuildingSelectedCallback([this](const Vec2& screenPos) {
-    auto building = getBuildingAtScreenPos(screenPos);
-    
-    if (building) {
-      int buildingId = building->getBuildingId();
-      CCLOG("VillageLayer: Auto-starting move mode for building ID=%d", buildingId);
-      _moveBuildingController->startMoving(buildingId);
-    } else {
-      CCLOG("VillageLayer: ERROR - Building selected callback triggered but no building found!");
-    }
-  });
-  
-  CCLOG("VillageLayer: Input callbacks configured");
+    CCLOG("VillageLayer: Setting up input callbacks");
+
+    // ========== 回调 1: 点击检测（用于 MoveMapController 判断点击了什么）==========
+    _inputController->setOnTapCallback([this](const Vec2& screenPos) -> TapTarget {
+        auto building = getBuildingAtScreenPos(screenPos);
+
+        // --- 获取 HUD 层 (通过 Tag 100) ---
+        auto scene = this->getScene();
+        HUDLayer* hudLayer = nullptr;
+        if (scene) {
+            hudLayer = dynamic_cast<HUDLayer*>(scene->getChildByTag(100));
+        }
+        // ----------------------------------------
+
+        if (building) {
+            CCLOG("VillageLayer: Tap detected on building ID=%d", building->getBuildingId());
+            return TapTarget::BUILDING;
+        }
+
+        // --- 如果点击了空白处 -> 隐藏底部菜单 ---
+        if (hudLayer) {
+            hudLayer->hideBuildingActions();
+        }
+        // ---------------------------------------------
+
+        // TODO: 检测是否点击商店按钮
+        // if (isShopButtonClicked(screenPos)) {
+        //      return TapTarget::SHOP;
+        // }
+
+        return TapTarget::NONE;
+        });
+
+    // ========== 回调 2: 建筑选中（自动进入移动模式）==========
+    _inputController->setOnBuildingSelectedCallback([this](const Vec2& screenPos) {
+        auto building = getBuildingAtScreenPos(screenPos);
+
+        // --- 获取 HUD 层 ---
+        auto scene = this->getScene();
+        HUDLayer* hudLayer = nullptr;
+        if (scene) {
+            hudLayer = dynamic_cast<HUDLayer*>(scene->getChildByTag(100));
+        }
+        // ------------------------
+
+        if (building) {
+            int buildingId = building->getBuildingId();
+            CCLOG("VillageLayer: Building selected ID=%d", buildingId);
+
+            // --- 显示底部操作菜单 ---
+            if (hudLayer) {
+                hudLayer->showBuildingActions(buildingId);
+            }
+            // -----------------------------
+
+            // 【注意】原来的自动移动逻辑：
+            // 如果你希望点击建筑只显示菜单，不直接开始拖动，建议先注释掉下面这行。
+            // 这样点击是“选中”，长按或点击菜单里的“移动”按钮才是“移动”（类似COC逻辑）。
+            //_moveBuildingController->startMoving(buildingId); 
+
+        }
+        else {
+            CCLOG("VillageLayer: ERROR - Building selected callback triggered but no building found!");
+        }
+        });
+
+    CCLOG("VillageLayer: Input callbacks configured");
 }

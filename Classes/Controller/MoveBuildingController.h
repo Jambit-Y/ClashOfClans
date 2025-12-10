@@ -65,6 +65,14 @@ public:
      */
     int getMovingBuildingId() const { return _movingBuildingId; }
 
+    /**
+     * 设置建筑点击回调（短按时触发）
+     * @param callback 回调函数，参数为建筑ID
+     */
+    void setOnBuildingTappedCallback(std::function<void(int)> callback) {
+        _onBuildingTapped = callback;
+    }
+
 private:
     cocos2d::Layer* _parentLayer;        // 父层（用于坐标转换）
     BuildingManager* _buildingManager;   // 建筑管理器引用
@@ -79,6 +87,16 @@ private:
 
     // 触摸事件监听器
     cocos2d::EventListenerTouchOneByOne* _touchListener;
+
+    // ========== 长按检测相关 ==========
+    float _touchDownTime;                // 触摸按下的时间戳
+    bool _isLongPressTriggered;          // 是否已触发长按
+    int _touchedBuildingId; // 触摸到的建筑ID
+    
+    static constexpr float LONG_PRESS_DURATION = 0.5f;  // 长按时长阈值（0.5秒）
+
+    // 回调函数
+    std::function<void(int)> _onBuildingTapped;  // 短按建筑回调
 
     /**
      * 处理触摸开始
@@ -129,6 +147,11 @@ private:
      * @return 位置信息结构体
      */
     BuildingPositionInfo calculatePositionInfo(const cocos2d::Vec2& touchWorldPos, int buildingId);
+
+    /**
+     * 检查是否达到长按时长
+     */
+    bool checkLongPress();
 };
 
 #endif // __MOVE_BUILDING_CONTROLLER_H__
