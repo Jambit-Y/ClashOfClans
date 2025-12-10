@@ -69,7 +69,7 @@ void MoveBuildingController::cancelMoving() {
             
             // ? 使用统一函数计算视觉位置
             Vec2 visualPos = GridMapUtils::getVisualPosition(
-                (int)originalGridPos.x, 
+                (int)originalGridPos.x,  
                 (int)originalGridPos.y, 
                 sprite->getVisualOffset()
             );
