@@ -1,5 +1,6 @@
 #include "VillageDataManager.h"
 #include "../Util/GridMapUtils.h"
+#include "../Util/FindPathUtil.h"  // ? 添加：引入寻路工具
 #include "../Model/BuildingConfig.h"
 #include <algorithm>
 #include "cocos2d.h"
@@ -117,6 +118,9 @@ int VillageDataManager::addBuilding(int type, int level, int gridX, int gridY,
     // 更新网格占用表（只有非PLACING状态的建筑才占用）
     if (state != BuildingInstance::State::PLACING) {
         updateGridOccupancy();
+        
+        // ? 通知寻路系统更新地图
+        FindPathUtil::getInstance()->updatePathfindingMap();
     }
     
     CCLOG("VillageDataManager: Added building ID=%d, type=%d at grid(%d, %d)", 
@@ -145,6 +149,9 @@ void VillageDataManager::setBuildingPosition(int id, int gridX, int gridY) {
         // 更新网格占用表
         updateGridOccupancy();
         
+        // ? 通知寻路系统更新地图
+        FindPathUtil::getInstance()->updatePathfindingMap();
+        
         CCLOG("VillageDataManager: Building ID=%d moved to grid(%d, %d)", id, gridX, gridY);
     }
 }
@@ -155,8 +162,11 @@ void VillageDataManager::setBuildingState(int id, BuildingInstance::State state,
         building->state = state;
         building->finishTime = finishTime;
         
-        // 更新网格占用表（状态改变可能影响占用）
+        // 更新网格占用表（状态改变会影响占用）
         updateGridOccupancy();
+        
+        // ? 通知寻路系统更新地图
+        FindPathUtil::getInstance()->updatePathfindingMap();
         
         CCLOG("VillageDataManager: Building ID=%d state changed to %d", id, (int)state);
     }

@@ -5,7 +5,6 @@
 #include "../proj.win32/Constants.h"
 #include "Manager/BuildingManager.h"
 #include "Manager/VillageDataManager.h"
-#include "Sprite/BattleUnitSprite.h"
 #include "ui/CocosGUI.h"
 #include <iostream>
 
@@ -29,11 +28,11 @@ bool VillageLayer::init() {
   // 3. 初始化建筑管理器
   _buildingManager = new BuildingManager(this);
 
-  // ✅ 4. 先初始化建筑移动控制器（优先级更高）
+  // 4. 先初始化建筑移动控制器（优先级更高）
   _moveBuildingController = new MoveBuildingController(this, _buildingManager);
   _moveBuildingController->setupTouchListener();
 
-  // ✅ 5. 后初始化地图移动控制器（优先级更低）
+  // 5. 后初始化地图移动控制器（优先级更低）
   _inputController = new MoveMapController(this);
   _inputController->setupInputListeners();
 
@@ -46,191 +45,6 @@ bool VillageLayer::init() {
   }, 1.0f, "building_update");
 
   CCLOG("VillageLayer initialized successfully");
-  CCLOG("  - MoveBuildingController added first (higher priority)");
-  CCLOG("  - MoveMapController added second (lower priority)");
-
-  // 每隔3格生成一个野蛮人（会生成大约 15x15 = 225 个）
-  int spacing = 3;
-  int count = 0;
-
-  for (int gridY = 0; gridY < 44; gridY += spacing) {
-    for (int gridX = 0; gridX < 44; gridX += spacing) {
-      auto barbarian = BattleUnitSprite::create("Barbarian");
-      barbarian->teleportToGrid(gridX, gridY);
-      barbarian->playIdleAnimation();
-      this->addChild(barbarian);
-      count++;
-    }
-  }
-
-  // ===== 野蛮人测试序列 =====
-
-  // 创建野蛮人，初始位置 (0, 0)
-  auto barbarian = BattleUnitSprite::create("Barbarian");
-  barbarian->teleportToGrid(0, 0);
-  this->addChild(barbarian);
-
-  CCLOG("=========================================");
-  CCLOG("Barbarian Test Sequence Started");
-  CCLOG("=========================================");
-
-  // 播放待机动画
-  barbarian->playIdleAnimation();
-
-  float timeOffset = 0.0f;
-  const float attackDuration = 1.0f;  // 每次攻击间隔1秒
-
-  // ===== 第一轮攻击：在 (0, 0) 位置 =====
-  CCLOG("Phase 1: Attacking at grid (0, 0)");
-
-  // 1. 向右上攻击 (45度)
-  timeOffset += 1.0f;
-  this->scheduleOnce([barbarian](float dt) {
-    CCLOG("  -> Attack RIGHT-UP");
-    barbarian->attackInDirection(Vec2(1, 1), []() {
-      CCLOG("     Attack completed");
-    });
-  }, timeOffset, "attack_right_up_1");
-
-  // 2. 向右攻击 (0度)
-  timeOffset += attackDuration;
-  this->scheduleOnce([barbarian](float dt) {
-    CCLOG("  -> Attack RIGHT");
-    barbarian->attackInDirection(Vec2(1, 0), []() {
-      CCLOG("     Attack completed");
-    });
-  }, timeOffset, "attack_right_1");
-
-  // 3. 向右下攻击 (315度)
-  timeOffset += attackDuration;
-  this->scheduleOnce([barbarian](float dt) {
-    CCLOG("  -> Attack RIGHT-DOWN");
-    barbarian->attackInDirection(Vec2(1, -1), []() {
-      CCLOG("     Attack completed");
-    });
-  }, timeOffset, "attack_right_down_1");
-
-  // 4. 向左上攻击 (135度)
-  timeOffset += attackDuration;
-  this->scheduleOnce([barbarian](float dt) {
-    CCLOG("  -> Attack LEFT-UP");
-    barbarian->attackInDirection(Vec2(-1, 1), []() {
-      CCLOG("     Attack completed");
-    });
-  }, timeOffset, "attack_left_up_1");
-
-  // 5. 向左攻击 (180度)
-  timeOffset += attackDuration;
-  this->scheduleOnce([barbarian](float dt) {
-    CCLOG("  -> Attack LEFT");
-    barbarian->attackInDirection(Vec2(-1, 0), []() {
-      CCLOG("     Attack completed");
-    });
-  }, timeOffset, "attack_left_1");
-
-  // 6. 向左下攻击 (225度)
-  timeOffset += attackDuration;
-  this->scheduleOnce([barbarian](float dt) {
-    CCLOG("  -> Attack LEFT-DOWN");
-    barbarian->attackInDirection(Vec2(-1, -1), []() {
-      CCLOG("     Attack completed");
-    });
-  }, timeOffset, "attack_left_down_1");
-
-  // ===== 移动阶段 =====
-
-  // 移动到 (0, 5)
-  timeOffset += attackDuration + 0.5f;
-  this->scheduleOnce([barbarian](float dt) {
-    CCLOG("Phase 2: Walking to grid (0, 5)");
-    barbarian->walkToGrid(0, 5, 150.0f, []() {
-      CCLOG("  Arrived at grid (0, 5)");
-    });
-  }, timeOffset, "walk_to_0_5");
-
-  // 等待移动完成（根据速度估算时间）
-  timeOffset += 3.0f;
-
-  // 移动到 (5, 5)
-  this->scheduleOnce([barbarian](float dt) {
-    CCLOG("Phase 3: Walking to grid (5, 5)");
-    barbarian->walkToGrid(5, 5, 150.0f, []() {
-      CCLOG("  Arrived at grid (5, 5)");
-    });
-  }, timeOffset, "walk_to_5_5");
-
-  // 等待移动完成
-  timeOffset += 3.0f;
-
-  // ===== 第二轮攻击：在 (5, 5) 位置 =====
-  CCLOG("Phase 4: Attacking at grid (5, 5)");
-
-  // 1. 向右上攻击
-  timeOffset += 1.0f;
-  this->scheduleOnce([barbarian](float dt) {
-    CCLOG("  -> Attack RIGHT-UP");
-    barbarian->attackInDirection(Vec2(1, 1), []() {
-      CCLOG("     Attack completed");
-    });
-  }, timeOffset, "attack_right_up_2");
-
-  // 2. 向右攻击
-  timeOffset += attackDuration;
-  this->scheduleOnce([barbarian](float dt) {
-    CCLOG("  -> Attack RIGHT");
-    barbarian->attackInDirection(Vec2(1, 0), []() {
-      CCLOG("     Attack completed");
-    });
-  }, timeOffset, "attack_right_2");
-
-  // 3. 向右下攻击
-  timeOffset += attackDuration;
-  this->scheduleOnce([barbarian](float dt) {
-    CCLOG("  -> Attack RIGHT-DOWN");
-    barbarian->attackInDirection(Vec2(1, -1), []() {
-      CCLOG("     Attack completed");
-    });
-  }, timeOffset, "attack_right_down_2");
-
-  // 4. 向左上攻击
-  timeOffset += attackDuration;
-  this->scheduleOnce([barbarian](float dt) {
-    CCLOG("  -> Attack LEFT-UP");
-    barbarian->attackInDirection(Vec2(-1, 1), []() {
-      CCLOG("     Attack completed");
-    });
-  }, timeOffset, "attack_left_up_2");
-
-  // 5. 向左攻击
-  timeOffset += attackDuration;
-  this->scheduleOnce([barbarian](float dt) {
-    CCLOG("  -> Attack LEFT");
-    barbarian->attackInDirection(Vec2(-1, 0), []() {
-      CCLOG("     Attack completed");
-    });
-  }, timeOffset, "attack_left_2");
-
-  // 6. 向左下攻击
-  timeOffset += attackDuration;
-  this->scheduleOnce([barbarian](float dt) {
-    CCLOG("  -> Attack LEFT-DOWN");
-    barbarian->attackInDirection(Vec2(-1, -1), []() {
-      CCLOG("     Attack completed");
-    });
-  }, timeOffset, "attack_left_down_2");
-
-  // ===== 测试结束 =====
-  timeOffset += attackDuration + 1.0f;
-  this->scheduleOnce([barbarian](float dt) {
-    CCLOG("=========================================");
-    CCLOG("Test Sequence Completed!");
-    CCLOG("=========================================");
-
-    // 播放死亡动画
-    barbarian->playDeathAnimation([]() {
-      CCLOG("Barbarian died");
-    });
-  }, timeOffset, "test_end");
 
   return true;
 }
@@ -280,8 +94,7 @@ void VillageLayer::onBuildingPurchased(int buildingId) {
   }
 }
 
-
-//初始化方法
+// 初始化方法
 void VillageLayer::initializeBasicProperties() {
   auto mapSize = _mapSprite->getContentSize();
   this->setContentSize(mapSize);
@@ -292,7 +105,6 @@ void VillageLayer::initializeBasicProperties() {
   CCLOG("VillageLayer basic properties initialized:");
   CCLOG("  Map size: %.0fx%.0f", mapSize.width, mapSize.height);
 }
-#pragma endregion
 
 // 辅助方法
 Sprite* VillageLayer::createMapSprite() {
@@ -312,13 +124,12 @@ BuildingSprite* VillageLayer::getBuildingAtScreenPos(const Vec2& screenPos) {
   Vec2 worldPos = this->convertToNodeSpace(screenPos);
   return _buildingManager->getBuildingAtWorldPos(worldPos);
 }
-#pragma endregion
 
 // 设置输入回调
 void VillageLayer::setupInputCallbacks() {
   CCLOG("VillageLayer: Setting up input callbacks");
   
-  // ========== 回调 1: 点击检测（用于 MoveMapController 判断点击了什么）==========
+  // 回调 1: 点击检测（用于 MoveMapController 判断点击了什么）
   _inputController->setOnTapCallback([this](const Vec2& screenPos) -> TapTarget {
     auto building = getBuildingAtScreenPos(screenPos);
     
@@ -327,15 +138,10 @@ void VillageLayer::setupInputCallbacks() {
       return TapTarget::BUILDING;
     }
     
-    // TODO: 检测是否点击商店按钮
-    // if (isShopButtonClicked(screenPos)) {
-    //     return TapTarget::SHOP;
-    // }
-    
     return TapTarget::NONE;
   });
   
-  // ========== 回调 2: 建筑选中（自动进入移动模式）==========
+  // 回调 2: 建筑选中（自动进入移动模式）
   _inputController->setOnBuildingSelectedCallback([this](const Vec2& screenPos) {
     auto building = getBuildingAtScreenPos(screenPos);
     

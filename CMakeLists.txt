@@ -54,6 +54,7 @@ list(APPEND GAME_SOURCE
      Classes/Layer/VillageLayer.cpp
      Classes/Layer/ShopLayer.cpp
      Classes/Layer/HUDLayer.cpp
+     Classes/Layer/BattleTroopLayer.cpp
      Classes/Controller/MoveMapController.cpp
      Classes/Controller/MoveBuildingController.cpp
      Classes/Manager/AnimationManager.cpp
@@ -61,6 +62,7 @@ list(APPEND GAME_SOURCE
      Classes/Manager/BuildingManager.cpp
      Classes/Model/BuildingConfig.cpp
      Classes/Util/GridMapUtils.cpp
+     Classes/Util/FindPathUtil.cpp
      Classes/Sprite/BuildingSprite.cpp
      Classes/Sprite/BattleUnitSprite.cpp
      )
@@ -72,6 +74,7 @@ list(APPEND GAME_HEADER
      Classes/Layer/ShopLayer.h
      Classes/Layer/VillageLayer.h
      Classes/Layer/HUDLayer.h
+     Classes/Layer/BattleTroopLayer.h
      Classes/Controller/MoveMapController.h
      Classes/Controller/MoveBuildingController.h
      Classes/Manager/AnimationManager.h
@@ -80,6 +83,7 @@ list(APPEND GAME_HEADER
      Classes/Model/VillageData.h
      Classes/Model/BuildingConfig.h
      Classes/Util/GridMapUtils.h
+     Classes/Util/FindPathUtil.h
      Classes/Sprite/BuildingSprite.h
      Classes/Sprite/BattleUnitSprite.h
      )
