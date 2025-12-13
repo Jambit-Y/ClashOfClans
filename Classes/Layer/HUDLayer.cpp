@@ -76,7 +76,7 @@ bool HUDLayer::init() {
   auto shopBtn = ui::Button::create("UI/Shop/Shop-button.png");
   shopBtn->setAnchorPoint(Vec2(1, 0));
   shopBtn->setPosition(Vec2(origin.x + visibleSize.width - 20, origin.y + 20));
-  shopBtn->addClickEventListener([=](Ref* sender) {
+  shopBtn->addClickEventListener([this](Ref* sender) {
     CCLOG("点击了商店图标，准备打开商店...");
     auto shopLayer = ShopLayer::create();
     this->getScene()->addChild(shopLayer, 100);
@@ -118,13 +118,13 @@ bool HUDLayer::init() {
     battleBtn->setAnchorPoint(Vec2(0, 0));
     battleBtn->setPosition(Vec2(origin.x + 20, origin.y + 20));
     battleBtn->setScale(0.8f);
-    battleBtn->addClickEventListener([=](Ref* sender) {
+    battleBtn->addClickEventListener([this](Ref* sender) {
       CCLOG("点击了进攻按钮！");
       
       // 关键修复：使用延迟切换场景，避免在事件处理中直接切换导致监听器冲突
       this->getScene()->runAction(Sequence::create(
         DelayTime::create(0.1f),  // 延迟0.1秒，确保触摸事件完全结束
-        CallFunc::create([=]() {
+        CallFunc::create([]() {
           auto battleScene = BattleScene::createScene();
           Director::getInstance()->replaceScene(TransitionFade::create(0.5f, battleScene));
         }),
@@ -255,7 +255,7 @@ void HUDLayer::initActionMenu() {
   _btnInfo = Button::create(imgPath + "info.png");
   _btnInfo->ignoreContentAdaptWithSize(false);
   _btnInfo->setContentSize(Size(btnSize, btnSize));
-  _btnInfo->addClickEventListener([=](Ref*) {
+  _btnInfo->addClickEventListener([this](Ref*) {
     CCLOG("点击了信息");
   });
   _actionMenuNode->addChild(_btnInfo);
@@ -264,7 +264,8 @@ void HUDLayer::initActionMenu() {
   _btnUpgrade = Button::create(imgPath + "upgrade.png");
   _btnUpgrade->ignoreContentAdaptWithSize(false);
   _btnUpgrade->setContentSize(Size(btnSize, btnSize));
-  _btnUpgrade->addClickEventListener([=](Ref*) {
+  // 使用弱引用捕获 this
+  _btnUpgrade->addClickEventListener([this](Ref*) {
     CCLOG("点击升级");
 
     if (_currentSelectedBuildingId == -1) return;
@@ -299,7 +300,7 @@ void HUDLayer::initActionMenu() {
   _btnTrain = Button::create(imgPath + "training.png");
   _btnTrain->ignoreContentAdaptWithSize(false);
   _btnTrain->setContentSize(Size(btnSize, btnSize));
-  _btnTrain->addClickEventListener([=](Ref*) {
+  _btnTrain->addClickEventListener([this](Ref*) {
     CCLOG("点击了训练部队");
     auto trainLayer = TrainingLayer::create();
     this->getScene()->addChild(trainLayer, 150);
@@ -311,7 +312,7 @@ void HUDLayer::initActionMenu() {
   _btnSpeedup->ignoreContentAdaptWithSize(false);
   _btnSpeedup->setContentSize(Size(btnSize, btnSize));
   _btnSpeedup->setVisible(false);  // 默认隐藏
-  _btnSpeedup->addClickEventListener([=](Ref*) {
+  _btnSpeedup->addClickEventListener([this](Ref*) {
     CCLOG("点击了加速按钮");
     if (_currentSelectedBuildingId == -1) return;
     onSpeedupClicked(_currentSelectedBuildingId);
