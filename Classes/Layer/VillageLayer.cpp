@@ -32,11 +32,11 @@ bool VillageLayer::init() {
   // 3. 初始化建筑管理器
   _buildingManager = new BuildingManager(this);
 
-  // ✅ 4. 先初始化建筑移动控制器（优先级更高）
+  //  4. 先初始化建筑移动控制器（优先级更高）
   _moveBuildingController = new MoveBuildingController(this, _buildingManager);
   _moveBuildingController->setupTouchListener();
   
-  // ✅ 设置短按建筑回调
+  //  设置短按建筑回调
   _moveBuildingController->setOnBuildingTappedCallback([this](int buildingId) {
       CCLOG("VillageLayer: Building tapped ID=%d, showing menu", buildingId);
     
@@ -87,7 +87,29 @@ bool VillageLayer::init() {
         }
     });
   _eventDispatcher->addEventListenerWithSceneGraphPriority(upgradeListener, this);
+  auto speedupListener = EventListenerCustom::create("EVENT_BUILDING_SPEEDUP_COMPLETE",
+                                                     [this](EventCustom* event) {
+    int buildingId = *(int*)event->getUserData();
 
+    CCLOG("VillageLayer: Building %d speedup complete, updating UI", buildingId);
+
+    // 获取更新后的建筑数据
+    auto dataManager = VillageDataManager::getInstance();
+    auto building = dataManager->getBuildingById(buildingId);
+
+    if (building && _buildingManager) {
+      auto sprite = _buildingManager->getBuildingSprite(buildingId);
+      if (sprite) {
+        // 强制隐藏进度条和完成建造动画
+        sprite->hideConstructionProgress();
+        sprite->finishConstruction();
+
+        // 更新建筑等级和状态
+        sprite->updateBuilding(*building);
+      }
+    }
+  });
+  _eventDispatcher->addEventListenerWithSceneGraphPriority(speedupListener, this);
   return true;
 }
 
@@ -297,13 +319,13 @@ void VillageLayer::updateBuildingPreviewPosition(int buildingId, const cocos2d::
   auto dataManager = VillageDataManager::getInstance();
   dataManager->setBuildingPosition(buildingId, gridX, gridY);
 
-  // ✅ 修复：isAreaOccupied() 需要 5 个参数
+  //  修复：isAreaOccupied() 需要 5 个参数
   bool canPlace = !dataManager->isAreaOccupied(
     gridX,
     gridY,
-    config->gridWidth,    // ✅ 添加宽度参数
-    config->gridHeight,   // ✅ 添加高度参数
-    buildingId            // ✅ 忽略自己
+    config->gridWidth,    //  添加宽度参数
+    config->gridHeight,   //  添加高度参数
+    buildingId            //  忽略自己
   );
 
   // 显示视觉反馈
