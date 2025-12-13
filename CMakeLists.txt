@@ -69,8 +69,10 @@ list(APPEND GAME_SOURCE
      Classes/Manager/Resource/ResourceProductionSystem.cpp
      Classes/Manager/AnimationManager.cpp
      Classes/Manager/BuildingManager.cpp
+     Classes/Manager/BuildingSpeedupManager.cpp
      Classes/Manager/BuildingUpgradeManager.cpp
      Classes/Manager/VillageDataManager.cpp
+     Classes/Model/BuildingRequirements.cpp
      Classes/Model/BuildingConfig.cpp
      Classes/Model/TroopConfig.cpp
      Classes/Util/GridMapUtils.cpp
@@ -80,7 +82,6 @@ list(APPEND GAME_SOURCE
      Classes/UI/ResourceCollectionUI.cpp
      Classes/Util/GridMapUtils.cpp
      Classes/Util/FindPathUtil.cpp
-     Classes/Util/JsonUtils.cpp
      )
 list(APPEND GAME_HEADER
      ../proj.win32/Constants.h
@@ -104,10 +105,12 @@ list(APPEND GAME_HEADER
      Classes/Manager/Resource/ResourceManager.h
      Classes/Manager/Resource/ResourceProductionSystem.h
      Classes/Manager/AnimationManager.h
+     Classes/Manager/BuildingSpeedupManager.h
      Classes/Manager/BuildingUpgradeManager.h
      Classes/Manager/BuildingManager.h
      Classes/Manager/VillageDataManager.h
      Classes/Model/VillageData.h
+     Classes/Model/BuildingRequirements.h
      Classes/Model/BuildingConfig.h
      Classes/Model/TroopConfig.h
      Classes/Util/GridMapUtils.h
@@ -117,7 +120,6 @@ list(APPEND GAME_HEADER
      Classes/UI/ResourceCollectionUI.h
      Classes/Util/GridMapUtils.h
      Classes/Util/FindPathUtil.h
-     Classes/Util/JsonUtils.h
      )
 
 if(ANDROID)
