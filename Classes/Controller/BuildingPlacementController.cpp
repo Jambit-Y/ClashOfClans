@@ -22,11 +22,11 @@ void BuildingPlacementController::cancelPlacement() {
 
   CCLOG("BuildingPlacementController: Placement cancelled for building ID=%d", _currentBuildingId);
 
-  // 从数据中删除这个建筑
+  // 从数据层删除建筑数据
   auto dataManager = VillageDataManager::getInstance();
   dataManager->removeBuilding(_currentBuildingId);
 
-  // 通知删除精灵（需要通过回调）
+  // 通知删除成功（需要通过回调）
   if (_placementCallback) {
     _placementCallback(false, _currentBuildingId);
   }
@@ -51,20 +51,19 @@ bool BuildingPlacementController::confirmPlacement() {
     return false;
   }
 
-  // ? 获取建筑配置，计算建造时间
-  auto config = BuildingConfig::getInstance()->getConfig(building->type);
-  if (!config) {
-    CCLOG("BuildingPlacementController: ERROR - Config not found");
+  // ========== 调用统一的放置完成方法 ==========
+  // 这个方法会自动处理：
+  //   - 工人小屋（ID=201）→ 瞬间完成 → BUILT 状态
+  //   - 其他建筑 → 进入 CONSTRUCTING 状态
+  bool success = dataManager->startConstructionAfterPlacement(_currentBuildingId);
+
+  if (!success) {
+    CCLOG("BuildingPlacementController: ERROR - Failed to start construction");
     return false;
   }
+  // =====================================================
 
-  long long currentTime = time(nullptr);
-  long long finishTime = currentTime + config->buildTimeSeconds;
-
-  // 设置为建造中状态
-  dataManager->setBuildingState(_currentBuildingId, BuildingInstance::State::CONSTRUCTING, finishTime);
-
-  CCLOG("BuildingPlacementController: Building placed successfully, construction started");
+  CCLOG("BuildingPlacementController: Building placed successfully");
 
   if (_placementCallback) {
     _placementCallback(true, _currentBuildingId);
@@ -87,7 +86,7 @@ bool BuildingPlacementController::canPlaceAtCurrentPosition() const {
   auto config = BuildingConfig::getInstance()->getConfig(building->type);
   if (!config) return false;
 
-  // 检查区域是否被占用
+  // 检查区域是否占用
   return !dataManager->isAreaOccupied(
     building->gridX,
     building->gridY,

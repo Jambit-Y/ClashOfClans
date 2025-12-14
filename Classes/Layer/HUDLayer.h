@@ -24,6 +24,11 @@ public:
   void hidePlacementUI();
   void updatePlacementUIState(bool canPlace);
 
+  // ========== 连续建造模式 ==========
+  void enterContinuousBuildMode(int buildingType);
+  void exitContinuousBuildMode(const std::string& reason);
+  bool isInContinuousBuildMode() const { return _isContinuousBuildMode; }
+
 private:
   void initActionMenu();
 
@@ -47,7 +52,9 @@ private:
   cocos2d::Label* _goldLabel;
   cocos2d::Label* _elixirLabel;
   cocos2d::Label* _gemLabel;
-
+  cocos2d::Label* _workerLabel;
+  // 工人UI更新方法
+  void updateWorkerDisplay();
   cocos2d::Node* _actionMenuNode;
   cocos2d::Label* _buildingNameLabel;
   cocos2d::Label* _upgradeCostLabel;
@@ -65,4 +72,18 @@ private:
 
   // 复用的提示Label
   cocos2d::Label* _tipsLabel;
+
+  // ========== ：连续建造的辅助方法 ==========
+  void createNextWall();           
+  bool canContinueBuild();        
+  void updateContinuousModeUI();   
+  void setupKeyboardListener();    
+  void onKeyPressed(cocos2d::EventKeyboard::KeyCode keyCode, cocos2d::Event* event);   
+
+  // ========== ：连续建造模式的状态变量 ==========
+  bool _isContinuousBuildMode = false;      
+  int _continuousBuildingType = -1;          
+  cocos2d::Label* _modeHintLabel = nullptr;  
+  cocos2d::EventListenerKeyboard* _keyboardListener = nullptr;  
+
 };

@@ -137,9 +137,9 @@ void BuildingRequirements::initializeRules() {
     rule.minTownHallLevel = 1;
 
     // 数量限制：大本升级可以多买工人
-    rule.thLevelToMaxCount[1] = 1;
-    rule.thLevelToMaxCount[2] = 2;
-    rule.thLevelToMaxCount[3] = 3;
+    rule.thLevelToMaxCount[1] = 5;
+    rule.thLevelToMaxCount[2] = 5;
+    rule.thLevelToMaxCount[3] = 5;
 
     // 等级限制（工人小屋不能升级，但为了统一加上）
     rule.buildingLevelToTH[1] = 1;

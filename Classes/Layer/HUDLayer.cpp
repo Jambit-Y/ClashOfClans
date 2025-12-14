@@ -15,6 +15,9 @@ USING_NS_CC;
 using namespace ui;
 
 const std::string FONT_PATH = "fonts/simhei.ttf";
+// ========== 定义自定义颜色 ==========
+const Color3B COLOR_CYAN = Color3B(0, 255, 255);      // 青色
+const Color3B COLOR_ORANGE = Color3B(255, 165, 0);    // 橙色
 
 //  定义按钮布局配置
 const HUDLayer::ButtonLayout HUDLayer::LAYOUT_TWO_BUTTONS = {
@@ -34,6 +37,12 @@ bool HUDLayer::init() {
     return false;
   }
 
+  // ========== 初始化连续建造模式状态 ==========
+  _isContinuousBuildMode = false;
+  _continuousBuildingType = -1;
+  _modeHintLabel = nullptr;
+  _keyboardListener = nullptr;
+
   auto dataManager = VillageDataManager::getInstance();
   auto visibleSize = Director::getInstance()->getVisibleSize();
   Vec2 origin = Director::getInstance()->getVisibleOrigin();
@@ -41,16 +50,27 @@ bool HUDLayer::init() {
   // 1. 当前资源标签
   _goldLabel = Label::createWithTTF("Gold: 0", "fonts/Marker Felt.ttf", 24);
   _goldLabel->setPosition(Vec2(origin.x + 100, origin.y + visibleSize.height - 30));
+  _goldLabel->setColor(Color3B(255, 215, 0));  // 金色 RGB(255, 215, 0)
   this->addChild(_goldLabel);
 
   _elixirLabel = Label::createWithTTF("Elixir: 0", "fonts/Marker Felt.ttf", 24);
   _elixirLabel->setPosition(Vec2(origin.x + 300, origin.y + visibleSize.height - 30));
+  _elixirLabel->setColor(Color3B(255, 0, 255));  // 紫红色（洋红）RGB(255, 0, 255)
   this->addChild(_elixirLabel);
 
   _gemLabel = Label::createWithTTF("Gem: 0", "fonts/Marker Felt.ttf", 24);
   _gemLabel->setPosition(Vec2(origin.x + 500, origin.y + visibleSize.height - 30));
-  _gemLabel->setColor(Color3B::GREEN);
+  _gemLabel->setColor(Color3B(0, 255, 0));  // 绿色 RGB(0, 255, 0)
   this->addChild(_gemLabel);
+
+  // ========== 工人状态显示 ==========
+  _workerLabel = Label::createWithTTF("Workers: 1/1", "fonts/Marker Felt.ttf", 24);
+  _workerLabel->setPosition(Vec2(origin.x + 700, origin.y + visibleSize.height - 30));
+  _workerLabel->setColor(COLOR_CYAN);
+  this->addChild(_workerLabel);
+
+  // 立即更新一次
+  updateWorkerDisplay();
 
   //  新增：预先创建提示Label（复用）
   _tipsLabel = Label::createWithTTF("", FONT_PATH, 30);
@@ -99,6 +119,19 @@ bool HUDLayer::init() {
         Director::getInstance()->getEventDispatcher()->removeEventListener(_placementTouchListener);
         _placementTouchListener = nullptr;
       }
+
+      // ========== 检查是否在连续建造模式 ==========
+      if (_isContinuousBuildMode) {
+        CCLOG("HUDLayer: In continuous build mode, checking if can continue...");
+
+        // 检查是否可以继续建造
+        if (canContinueBuild()) {
+          CCLOG("HUDLayer: Creating next wall...");
+          createNextWall();
+        } else {
+          exitContinuousBuildMode("资源不足或数量达到上限");
+        }
+      }
     }
   });
 
@@ -109,6 +142,11 @@ bool HUDLayer::init() {
       if (_placementTouchListener) {
         Director::getInstance()->getEventDispatcher()->removeEventListener(_placementTouchListener);
         _placementTouchListener = nullptr;
+      }
+
+      // ========== 如果在连续建造模式，退出模式 ==========
+      if (_isContinuousBuildMode) {
+        exitContinuousBuildMode("用户取消");
       }
     }
   });
@@ -161,6 +199,32 @@ bool HUDLayer::init() {
     }
     hidePlacementUI();
   });
+  // ========== 监听工人状态变化事件 ==========
+// 监听建筑建造完成事件（包括工人小屋瞬间完成）
+  auto buildingUpgradedListener = EventListenerCustom::create("EVENT_BUILDING_UPGRADED",
+                                                              [this](EventCustom* event) {
+    CCLOG("HUDLayer: Building upgraded/completed, updating worker display");
+    updateWorkerDisplay();
+  });
+  _eventDispatcher->addEventListenerWithSceneGraphPriority(buildingUpgradedListener, this);
+
+  // 监听建筑建造完成事件（新建筑完成）
+  auto buildingConstructedListener = EventListenerCustom::create("EVENT_BUILDING_CONSTRUCTED",
+                                                                 [this](EventCustom* event) {
+    CCLOG("HUDLayer: Building construction completed, updating worker display");
+    updateWorkerDisplay();
+  });
+  _eventDispatcher->addEventListenerWithSceneGraphPriority(buildingConstructedListener, this);
+
+  // 监听建筑建造开始事件（需要在 VillageDataManager 中触发）
+  auto constructionStartedListener = EventListenerCustom::create("EVENT_CONSTRUCTION_STARTED",
+                                                                 [this](EventCustom* event) {
+    CCLOG("HUDLayer: Construction started, updating worker display");
+    updateWorkerDisplay();
+  });
+  _eventDispatcher->addEventListenerWithSceneGraphPriority(constructionStartedListener, this);
+  // ========== 设置键盘监听器（用于 ESC 退出）==========
+  setupKeyboardListener();
 
   return true;
 }
@@ -173,6 +237,19 @@ void HUDLayer::cleanup() {
     Director::getInstance()->getEventDispatcher()->removeEventListener(_placementTouchListener);
     _placementTouchListener = nullptr;
     CCLOG("HUDLayer::cleanup - Removed placement touch listener");
+  }
+
+  // ========== 清理键盘监听器 ==========
+  if (_keyboardListener) {
+    Director::getInstance()->getEventDispatcher()->removeEventListener(_keyboardListener);
+    _keyboardListener = nullptr;
+    CCLOG("HUDLayer::cleanup - Removed keyboard listener");
+  }
+
+  // 清理连续建造模式的 UI
+  if (_modeHintLabel) {
+    _modeHintLabel->removeFromParent();
+    _modeHintLabel = nullptr;
   }
   
   // 清理放置控制器
@@ -275,6 +352,19 @@ void HUDLayer::initActionMenu() {
 
     if (!building) return;
 
+    // ========== 检查0：工人是否空闲（最高优先级）==========
+    if (!dataManager->hasIdleWorker()) {
+      int idle = dataManager->getIdleWorkerCount();
+      int total = dataManager->getTotalWorkers();
+
+      std::string tip = "所有工人都在忙碌！\n";
+      tip += "空闲工人: " + std::to_string(idle) + "/" + std::to_string(total);
+      tip += "\n请购买建筑工人小屋（50宝石）";
+
+      showTips(tip, Color3B::ORANGE);
+      return;
+    }
+
     // ========== 检查1：是否满级 ==========
     if (building->level >= 3) {
       showTips("建筑已达到最大等级！", Color3B::RED);
@@ -308,7 +398,14 @@ void HUDLayer::initActionMenu() {
     if (dataManager->startUpgradeBuilding(_currentSelectedBuildingId)) {
       CCLOG("升级开始成功!");
       hideBuildingActions();
-      showTips("升级开始！", Color3B::GREEN);
+      // ==========  显示升级成功 + 工人状态 ==========
+      int idle = dataManager->getIdleWorkerCount();
+      int total = dataManager->getTotalWorkers();
+
+      std::string tip = "升级开始！\n";
+      tip += "剩余工人: " + std::to_string(idle) + "/" + std::to_string(total);
+
+      showTips(tip, Color3B::GREEN);
     } else {
       showTips("升级失败：资源不足", Color3B::RED);
     }
@@ -567,4 +664,220 @@ void HUDLayer::startBuildingPlacement(int buildingId) {
 
   Director::getInstance()->getEventDispatcher()->addEventListenerWithSceneGraphPriority(
     _placementTouchListener, this);
+}
+
+// ========== 进入连续建造模式 ==========
+void HUDLayer::enterContinuousBuildMode(int buildingType) {
+  CCLOG("HUDLayer: Entering continuous build mode for type %d", buildingType);
+
+  _isContinuousBuildMode = true;
+  _continuousBuildingType = buildingType;
+
+  // ========== 核心修复：将提示标签移到确认按钮上方 ==========
+  auto visibleSize = Director::getInstance()->getVisibleSize();
+
+  _modeHintLabel = Label::createWithTTF(
+    "连续建造模式 | 按ESC退出",
+    FONT_PATH,
+    20  // 字体稍微小一点，更紧凑
+  );
+
+  // 位置：Y=180，正好在确认按钮（Y=100）上方 80 像素
+  _modeHintLabel->setPosition(visibleSize.width / 2, 180.0f);
+  _modeHintLabel->setColor(Color3B::YELLOW);
+  _modeHintLabel->enableOutline(Color4B::BLACK, 2);
+  this->addChild(_modeHintLabel, 999);  // ZOrder 999，低于 PlacementConfirmUI
+  // ==================================================================
+
+  // 更新 UI 显示剩余资源
+  updateContinuousModeUI();
+
+  // 创建第一个城墙
+  createNextWall();
+}
+
+// ========== 退出连续建造模式 ==========
+void HUDLayer::exitContinuousBuildMode(const std::string& reason) {
+  CCLOG("HUDLayer: Exiting continuous build mode - Reason: %s", reason.c_str());
+
+  _isContinuousBuildMode = false;
+  _continuousBuildingType = -1;
+
+  // 移除提示标签
+  if (_modeHintLabel) {
+    _modeHintLabel->removeFromParent();
+    _modeHintLabel = nullptr;
+  }
+
+  // 显示退出原因（可选）
+  auto visibleSize = Director::getInstance()->getVisibleSize();
+  auto exitLabel = Label::createWithTTF(
+    "已退出连续建造模式: " + reason,
+    FONT_PATH,
+    20
+  );
+  exitLabel->setPosition(visibleSize.width / 2, visibleSize.height / 2);
+  exitLabel->setColor(Color3B::GREEN);
+  exitLabel->enableOutline(Color4B::BLACK, 2);
+  this->addChild(exitLabel, 1000);
+
+  // 2秒后自动消失
+  exitLabel->runAction(Sequence::create(
+    DelayTime::create(2.0f),
+    RemoveSelf::create(),
+    nullptr
+  ));
+}
+
+// ========== 创建下一个城墙 ==========
+void HUDLayer::createNextWall() {
+  auto dataManager = VillageDataManager::getInstance();
+  auto config = BuildingConfig::getInstance()->getConfig(_continuousBuildingType);
+
+  if (!config) {
+    exitContinuousBuildMode("配置错误");
+    return;
+  }
+
+  // 1. 扣除资源
+  int cost = config->initialCost;
+  if (config->costType == "gold") {
+    if (dataManager->getGold() < cost) {
+      exitContinuousBuildMode("金币不足");
+      return;
+    }
+    dataManager->spendGold(cost);
+  } else if (config->costType == "elixir") {
+    if (dataManager->getElixir() < cost) {
+      exitContinuousBuildMode("圣水不足");
+      return;
+    }
+    dataManager->spendElixir(cost);
+  }
+
+  // 2. 创建建筑数据（PLACING 状态）
+  int buildingId = dataManager->addBuilding(
+    _continuousBuildingType, 0, 0, 1, BuildingInstance::State::PLACING
+  );
+  if (buildingId < 0) {
+    exitContinuousBuildMode("创建失败");
+    return;
+  }
+
+  // 3. 通知 VillageLayer 创建精灵并启动放置流程
+  auto scene = this->getScene();
+  if (scene) {
+    auto villageLayer = dynamic_cast<VillageLayer*>(scene->getChildByTag(1));
+    if (villageLayer) {
+      villageLayer->onBuildingPurchased(buildingId);
+    }
+  }
+
+  // 直接更新 UI 即可
+  updateContinuousModeUI();
+
+  CCLOG("HUDLayer: Created next wall (ID=%d)", buildingId);
+}
+
+// ========== 检查是否可以继续建造 ==========
+bool HUDLayer::canContinueBuild() {
+  auto dataManager = VillageDataManager::getInstance();
+  auto requirements = BuildingRequirements::getInstance();
+  auto config = BuildingConfig::getInstance()->getConfig(_continuousBuildingType);
+
+  if (!config) return false;
+
+  // 检查1：资源是否足够
+  int cost = config->initialCost;
+  if (config->costType == "gold" && dataManager->getGold() < cost) {
+    CCLOG("HUDLayer: Not enough gold (%d < %d)", dataManager->getGold(), cost);
+    return false;
+  }
+  if (config->costType == "elixir" && dataManager->getElixir() < cost) {
+    CCLOG("HUDLayer: Not enough elixir (%d < %d)", dataManager->getElixir(), cost);
+    return false;
+  }
+
+  // 检查2：数量是否达到上限
+  int currentTHLevel = dataManager->getTownHallLevel();
+  int maxCount = requirements->getMaxCount(_continuousBuildingType, currentTHLevel);
+
+  int currentCount = 0;
+  for (const auto& building : dataManager->getAllBuildings()) {
+    if (building.type == _continuousBuildingType &&
+        building.state != BuildingInstance::State::PLACING) {
+      currentCount++;
+    }
+  }
+
+  if (currentCount >= maxCount) {
+    CCLOG("HUDLayer: Reached max count (%d >= %d)", currentCount, maxCount);
+    return false;
+  }
+
+  return true;
+}
+
+// ========== 更新连续模式 UI ==========
+void HUDLayer::updateContinuousModeUI() {
+  if (!_modeHintLabel) return;
+
+  auto dataManager = VillageDataManager::getInstance();
+  auto config = BuildingConfig::getInstance()->getConfig(_continuousBuildingType);
+
+  if (!config) return;
+
+  // 简化后的提示文字
+  std::string text = "连续建造模式: " + config->name + " | 按ESC退出";
+
+  _modeHintLabel->setString(text);
+}
+
+// ========== 设置键盘监听器 ==========
+void HUDLayer::setupKeyboardListener() {
+  _keyboardListener = EventListenerKeyboard::create();
+
+  _keyboardListener->onKeyPressed = CC_CALLBACK_2(HUDLayer::onKeyPressed, this);
+
+  _eventDispatcher->addEventListenerWithSceneGraphPriority(_keyboardListener, this);
+
+  CCLOG("HUDLayer: Keyboard listener set up");
+}
+
+// ========== 键盘事件处理 ==========
+void HUDLayer::onKeyPressed(EventKeyboard::KeyCode keyCode, Event* event) {
+  if (keyCode == EventKeyboard::KeyCode::KEY_ESCAPE) {
+    CCLOG("HUDLayer: ESC key pressed");
+
+    if (_isContinuousBuildMode) {
+      // 如果正在放置建筑，先取消当前建筑
+      if (_placementController && _placementController->isPlacing()) {
+        _placementController->cancelPlacement();
+      }
+      exitContinuousBuildMode("用户按ESC退出");
+    }
+  }
+}
+
+// ========== 工人状态显示更新 ==========
+void HUDLayer::updateWorkerDisplay() {
+  if (!_workerLabel) return;
+
+  auto dataManager = VillageDataManager::getInstance();
+
+  int idle = dataManager->getIdleWorkerCount();
+  int total = dataManager->getTotalWorkers();
+
+  // 显示格式："Workers: 空闲/总数"
+  std::string text = StringUtils::format("Workers: %d/%d", idle, total);
+  _workerLabel->setString(text);
+
+  // 根据工人状态动态改变颜色
+  if (idle == 0) {
+    _workerLabel->setColor(Color3B::RED);     // 全部忙碌 - 红色警告
+  } else if (idle < total) {
+    _workerLabel->setColor(Color3B::ORANGE);  // 部分忙碌 - 橙色
+  } else {
+    _workerLabel->setColor(COLOR_CYAN);    // 全部空闲 - 青色
+  }
 }

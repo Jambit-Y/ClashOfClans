@@ -22,7 +22,7 @@ VillageDataManager::VillageDataManager()
 
   _data.gold = 100000;
   _data.elixir = 100000;
-  _data.gem = 100;
+  _data.gem = 1000;
 
   CCLOG("VillageDataManager: Initialized");
 }
@@ -320,6 +320,14 @@ bool VillageDataManager::startUpgradeBuilding(int id) {
         id, building->level, building->level + 1, finishTime);
 
   saveToFile("village.json");
+
+  // ========== 触发建造开始事件 ==========
+  EventCustom event("EVENT_CONSTRUCTION_STARTED");
+  int* data = new int(id);
+  event.setUserData(data);
+  Director::getInstance()->getEventDispatcher()->dispatchEvent(&event);
+  delete data;
+
   return true;
 }
 
@@ -369,6 +377,62 @@ void VillageDataManager::finishUpgradeBuilding(int id) {
 
   Director::getInstance()->getEventDispatcher()->dispatchCustomEvent(
     "EVENT_BUILDING_UPGRADED", &id);
+}
+
+// ========== 建筑放置完成后的处理 ==========
+bool VillageDataManager::startConstructionAfterPlacement(int buildingId) {
+  auto building = getBuildingById(buildingId);
+  if (!building) {
+    CCLOG("VillageDataManager: Building %d not found", buildingId);
+    return false;
+  }
+
+  if (building->state != BuildingInstance::State::PLACING) {
+    CCLOG("VillageDataManager: Building %d is not in PLACING state", buildingId);
+    return false;
+  }
+
+  // ========== 特殊处理：建筑工人小屋瞬间完成 ==========
+  if (building->type == 201) {
+    CCLOG("VillageDataManager: Builder hut completing instantly after placement");
+
+    building->state = BuildingInstance::State::BUILT;
+    building->finishTime = 0;
+    saveToFile("village.json");
+
+    // 触发完成事件
+    EventCustom event("EVENT_BUILDING_UPGRADED");
+    int* data = new int(buildingId);
+    event.setUserData(data);
+    Director::getInstance()->getEventDispatcher()->dispatchEvent(&event);
+    delete data;
+
+    return true;
+  }
+  // ====================================================
+
+  // 其他建筑正常建造流程
+  auto config = BuildingConfig::getInstance()->getConfig(building->type);
+  if (!config) {
+    CCLOG("VillageDataManager: Config not found for building type %d", building->type);
+    return false;
+  }
+
+  building->state = BuildingInstance::State::CONSTRUCTING;
+  building->finishTime = time(nullptr) + config->buildTimeSeconds;
+
+  saveToFile("village.json");
+
+  // ========== 触发建造开始事件 ==========
+  EventCustom event("EVENT_CONSTRUCTION_STARTED");
+  int* data = new int(buildingId);
+  event.setUserData(data);
+  Director::getInstance()->getEventDispatcher()->dispatchEvent(&event);
+  delete data;
+
+  CCLOG("VillageDataManager: Construction started for building %d, duration=%d seconds",
+        buildingId, config->buildTimeSeconds);
+  return true;
 }
 
 // ========== 网格占用查询 ==========
@@ -523,10 +587,57 @@ void VillageDataManager::loadFromFile(const std::string& filename) {
   std::string fullPath = writablePath + filename;
 
   if (!fileUtils->isFileExist(fullPath)) {
-    CCLOG("VillageDataManager: Save file not found, using defaults");
+    CCLOG("VillageDataManager: Save file not found, initializing default game");
+
+    // ==========  初始化默认建筑 ==========
+    _data.buildings.clear();
+
+    // 1. 大本营（放在地图中心）
+    // 44x44 网格，中心点为 (22, 22)
+    // 大本营是 4x4 建筑，左下角应该放在 (20, 20)
+    BuildingInstance townHall;
+    townHall.id = _nextBuildingId++;
+    townHall.type = 1;
+    townHall.gridX = 20;  // 中心 (22, 22) - 宽度的一半 (2)
+    townHall.gridY = 20;  // 中心 (22, 22) - 高度的一半 (2)
+    townHall.level = 1;
+    townHall.state = BuildingInstance::State::BUILT;
+    townHall.finishTime = 0;
+    townHall.isInitialConstruction = false;
+    _data.buildings.push_back(townHall);
+
+    CCLOG("VillageDataManager: Town Hall created at grid (%d, %d), center at (22, 22)",
+          townHall.gridX, townHall.gridY);
+
+    // 2. 建筑工人小屋（放在大本营左侧）
+    // 工人小屋是 2x2 建筑
+    BuildingInstance builderHut;
+    builderHut.id = _nextBuildingId++;
+    builderHut.type = 201;
+    builderHut.gridX = 16;  // 大本营左侧 (20 - 2 - 2 = 16)
+    builderHut.gridY = 20;  // 与大本营同一水平线
+    builderHut.level = 1;
+    builderHut.state = BuildingInstance::State::BUILT;
+    builderHut.finishTime = 0;
+    builderHut.isInitialConstruction = false;
+    _data.buildings.push_back(builderHut);
+
+    CCLOG("VillageDataManager: Builder Hut created at grid (%d, %d)",
+          builderHut.gridX, builderHut.gridY);
+
+    // 更新网格占用
+    updateGridOccupancy();
+
+    // 保存初始配置
+    saveToFile(filename);
+
+    CCLOG("VillageDataManager: Default game initialized with 2 buildings");
+    CCLOG("VillageDataManager: Initial game state saved to %s", fullPath.c_str());
+    // =============================================
     return;
   }
 
+  // ========== 加载已有存档 ==========
   std::string content = fileUtils->getStringFromFile(fullPath);
   if (content.empty()) {
     CCLOG("VillageDataManager: Failed to read save file");
@@ -548,7 +659,7 @@ void VillageDataManager::loadFromFile(const std::string& filename) {
     _data.elixir = doc["elixir"].GetInt();
   }
   if (doc.HasMember("gem") && doc["gem"].IsInt()) {
-    _data.gem = doc["gem"].GetInt();  // 新增
+    _data.gem = doc["gem"].GetInt();  
   }
 
   // --- 读取军队数据 ---
@@ -598,4 +709,46 @@ void VillageDataManager::loadFromFile(const std::string& filename) {
 
   CCLOG("VillageDataManager: Loaded %lu buildings and %lu troop types",
       _data.buildings.size(), _data.troops.size());
+}
+
+// ========== 工人系统实现 ==========
+
+int VillageDataManager::getTotalWorkers() const {
+  int workerCount = 0;
+
+  // 统计所有已建成的建筑工人小屋（ID=201, State=BUILT）
+  for (const auto& building : _data.buildings) {
+    if (building.type == 201 && building.state == BuildingInstance::State::BUILT) {
+      workerCount++;
+    }
+  }
+
+  // 直接返回工人小屋数量（不额外加1）
+  return workerCount;
+}
+
+int VillageDataManager::getBusyWorkerCount() const {
+  int busyCount = 0;
+
+  // 统计所有正在建造/升级的建筑
+  for (const auto& building : _data.buildings) {
+    if (building.state == BuildingInstance::State::CONSTRUCTING) {
+      busyCount++;
+    }
+  }
+
+  return busyCount;
+}
+
+bool VillageDataManager::hasIdleWorker() const {
+  return getIdleWorkerCount() > 0;
+}
+
+int VillageDataManager::getIdleWorkerCount() const {
+  int total = getTotalWorkers();
+  int busy = getBusyWorkerCount();
+  int idle = total - busy;
+
+  // 防止负数
+  return (idle < 0) ? 0 : idle;
 }

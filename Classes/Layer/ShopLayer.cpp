@@ -416,7 +416,7 @@ std::vector<ShopItemData> ShopLayer::getDummyData(int categoryIndex) {
     }
     else if (categoryIndex == 1) { // 资源
         std::string path = root + "resource_architecture/";
-        list.push_back({ 201, "建筑工人",     path + "Builders_Hut1.png",       500, "宝石", "0秒" });
+        list.push_back({ 201, "建筑工人",     path + "Builders_Hut1.png",       50, "宝石", "0秒" });
         list.push_back({ 202, "金矿",         path + "Gold_Mine1.png",          150, "圣水", "1分钟" });
         list.push_back({ 203, "圣水收集器",   path + "Elixir_Collector1.png",   150, "金币", "1分钟" });
         list.push_back({ 204, "储金罐",       path + "Gold_Storage1.png",       300, "圣水", "15分钟" });
@@ -447,78 +447,148 @@ std::vector<ShopItemData> ShopLayer::getDummyData(int categoryIndex) {
 
 // 购买调用函数
 void ShopLayer::onPurchaseBuilding(const ShopItemData& data) {
-  auto dataManager = VillageDataManager::getInstance();
-  int buildingType = data.id;
+  CCLOG("ShopLayer: Purchase button clicked for %s", data.name.c_str());
 
-  auto configManager = BuildingConfig::getInstance();
-  auto config = configManager->getConfig(buildingType);
+  auto dataManager = VillageDataManager::getInstance();
   auto requirements = BuildingRequirements::getInstance();
 
-  if (!config) {
-    CCLOG("ShopLayer: Invalid building type %d", buildingType);
+  // ========== 检查0：工人是否空闲（特殊建筑例外）==========
+  // 城墙（303）和建筑工人小屋（201）不需要工人
+  if (data.id != 303 && data.id != 201) {
+    if (!dataManager->hasIdleWorker()) {
+      int idle = dataManager->getIdleWorkerCount();
+      int total = dataManager->getTotalWorkers();
+
+      std::string tip = "所有工人都在忙碌！\n";
+      tip += "空闲工人: " + std::to_string(idle) + "/" + std::to_string(total);
+      tip += "\n请购买建筑工人小屋（50宝石）";
+
+      showTips(tip, Color3B::ORANGE);
+      return;
+    }
+  }
+
+  // 检查大本营等级限制
+  int currentTHLevel = dataManager->getTownHallLevel();
+  int requiredTHLevel = requirements->getMinTHLevel(data.id);
+
+  if (currentTHLevel < requiredTHLevel) {
+    std::string msg = "需要大本营 " + std::to_string(requiredTHLevel) + " 级!";
+    showTips(msg, Color3B::RED);
     return;
   }
 
-  // 统计非 PLACING 状态的建筑
+  // 检查数量限制
   int currentCount = 0;
   for (const auto& building : dataManager->getAllBuildings()) {
-    if (building.type == buildingType && building.state != BuildingInstance::State::PLACING) {
+    if (building.type == data.id && building.state != BuildingInstance::State::PLACING) {
       currentCount++;
     }
   }
 
-  int currentTHLevel = dataManager->getTownHallLevel();
-
-  // 检查购买条件
-  if (!requirements->canPurchase(buildingType, currentTHLevel, currentCount)) {
-    std::string reason = requirements->getRestrictionReason(buildingType, 0, currentTHLevel, currentCount);
-    showErrorDialog(reason);
+  int maxCount = requirements->getMaxCount(data.id, currentTHLevel);
+  if (currentCount >= maxCount) {
+    std::string msg = "已达到最大数量限制! (" + std::to_string(maxCount) + ")";
+    showTips(msg, Color3B::RED);
     return;
   }
 
+  // 检查资源
+  auto config = BuildingConfig::getInstance()->getConfig(data.id);
+  if (!config) return;
+
+  int cost = config->initialCost;
+  if (config->costType == "gold" && dataManager->getGold() < cost) {
+    showTips("金币不足!", Color3B::RED);
+    return;
+  }
+  if (config->costType == "elixir" && dataManager->getElixir() < cost) {
+    showTips("圣水不足!", Color3B::RED);
+    return;
+  }
+  // ========== 特殊处理：建筑工人小屋（完全模仿其他建筑）==========
+  if (data.id == 201) {
+    CCLOG("ShopLayer: Purchasing builder hut");
+
+    // 扣除宝石（和其他建筑一样的逻辑）
+    if (!dataManager->spendGem(cost)) {
+      showTips("宝石不足!", Color3B::RED);
+      return;
+    }
+
+    // 创建建筑（PLACING 状态，需要玩家放置）
+    int buildingId = dataManager->addBuilding(
+      data.id, 0, 0, 1, BuildingInstance::State::PLACING
+    );
+
+    if (buildingId < 0) {
+      showTips("购买失败!", Color3B::RED);
+      return;
+    }
+
+    CCLOG("ShopLayer: Builder hut created, ID=%d, entering placement mode", buildingId);
+
+    // 通知 VillageLayer 启动放置流程（和其他建筑完全一样）
+    auto scene = this->getScene();
+    if (scene) {
+      auto villageLayer = dynamic_cast<VillageLayer*>(scene->getChildByTag(1));
+      if (villageLayer) {
+        villageLayer->onBuildingPurchased(buildingId);
+      }
+    }
+
+    // 关闭商店
+    this->removeFromParent();
+    return;
+  }
+  // ========== 核心修改：检测城墙购买，进入连续建造模式 ==========
+  if (data.id == 303) {  // 城墙的 ID
+    CCLOG("ShopLayer: Wall purchase detected, entering continuous build mode");
+
+    // 获取 HUDLayer
+    auto scene = this->getScene();
+    if (scene) {
+      auto hudLayer = dynamic_cast<HUDLayer*>(scene->getChildByTag(100));
+      if (hudLayer) {
+        // 进入连续建造模式（HUDLayer 会自动处理扣费和创建）
+        hudLayer->enterContinuousBuildMode(303);
+
+        // 关闭商店
+        this->removeFromParent();
+        return;
+      }
+    }
+  }
+  // =================================================================
+
+  // ========== 其他建筑的正常购买流程（保持不变） ==========
   // 扣除资源
-  bool success = false;
-  if (data.costType == "金币") {
-    success = dataManager->spendGold(data.cost);
-  } else if (data.costType == "圣水") {
-    success = dataManager->spendElixir(data.cost);
-  } else if (data.costType == "宝石") {
-    success = dataManager->spendGem(data.cost);
+  if (config->costType == "gold") {
+    dataManager->spendGold(cost);
+  } else if (config->costType == "elixir") {
+    dataManager->spendElixir(cost);
   }
 
-  if (!success) {
-    CCLOG("ShopLayer: Not enough resources to purchase %s", data.name.c_str());
-    showErrorDialog("资源不足！");
+  // 创建建筑
+  int buildingId = dataManager->addBuilding(data.id, 0, 0, 1, BuildingInstance::State::PLACING);
+  if (buildingId < 0) {
+    showTips("购买失败!", Color3B::RED);
     return;
   }
 
-  // 核心修复：创建 0 级建筑
-  CCLOG("ShopLayer: Purchased %s, creating level 0 building", data.name.c_str());
+  CCLOG("ShopLayer: Building purchased successfully, ID=%d", buildingId);
 
-  int buildingId = dataManager->addBuilding(
-    buildingType,
-    0,  // 购买时等级 = 0
-    22, 22,
-    BuildingInstance::State::PLACING,
-    0,
-    true  // isInitialConstruction = true
-  );
-
-  this->onCloseClicked(nullptr);
-
-  // 通知 VillageLayer 和 HUDLayer
+  // 通知 VillageLayer
   auto scene = this->getScene();
   if (scene) {
     auto villageLayer = dynamic_cast<VillageLayer*>(scene->getChildByTag(1));
     if (villageLayer) {
       villageLayer->onBuildingPurchased(buildingId);
     }
-
-    auto hudLayer = dynamic_cast<HUDLayer*>(scene->getChildByTag(100));
-    if (hudLayer) {
-      hudLayer->showPlacementUI(buildingId);
-    }
   }
+
+  // 关闭商店
+  this->removeFromParent();
 }
 
 void ShopLayer::onCloseClicked(Ref* sender) {
@@ -570,4 +640,30 @@ void ShopLayer::showErrorDialog(const std::string& message) {
     return true;
   };
   this->getEventDispatcher()->addEventListenerWithSceneGraphPriority(listener, shieldLayer);
+}
+
+// 在 ShopLayer 类中添加 showTips 方法实现
+void ShopLayer::showTips(const std::string& message, const cocos2d::Color3B& color) {
+    // 简单弹窗提示实现，可根据需要美化
+    auto visibleSize = cocos2d::Director::getInstance()->getVisibleSize();
+    auto tipsBg = cocos2d::LayerColor::create(cocos2d::Color4B(0, 0, 0, 180), 420, 60);
+    tipsBg->setIgnoreAnchorPointForPosition(false);
+    tipsBg->setAnchorPoint(cocos2d::Vec2(0.5f, 0.5f));
+    tipsBg->setPosition(visibleSize.width / 2, visibleSize.height / 2 + 100);
+    this->addChild(tipsBg, 999);
+
+    auto label = cocos2d::Label::createWithTTF(message, "fonts/simhei.ttf", 28);
+    label->setPosition(210, 30);
+    label->setColor(color);
+    label->enableOutline(cocos2d::Color4B::BLACK, 2);
+    tipsBg->addChild(label);
+
+    tipsBg->runAction(
+        cocos2d::Sequence::create(
+            cocos2d::DelayTime::create(1.2f),
+            cocos2d::FadeOut::create(0.3f),
+            cocos2d::RemoveSelf::create(),
+            nullptr
+        )
+    );
 }
