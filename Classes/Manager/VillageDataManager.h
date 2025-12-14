@@ -54,7 +54,8 @@ public:
   bool startUpgradeBuilding(int id);
   void finishNewBuildingConstruction(int id);  // 新增：新建筑建造完成
   void finishUpgradeBuilding(int id);
-
+  // 新增：建筑放置完成后的处理
+  bool startConstructionAfterPlacement(int buildingId);
   void removeBuilding(int buildingId);
 
   // ========== 网格占用查询 ==========
@@ -95,6 +96,29 @@ public:
   int calculateElixirProductionRate() const;
   void processOfflineTime();
 
+  // ========== 工人系统 ==========
+
+/**
+ * @brief 获取当前拥有的总工人数量
+ * @return 已建造完成的建筑工人小屋数量
+ */
+  int getTotalWorkers() const;
+
+  /**
+   * @brief 获取当前正在工作的工人数量
+   * @return 所有处于 CONSTRUCTING 状态的建筑数量
+   */
+  int getBusyWorkerCount() const;
+
+  /**
+   * @brief 检查是否有空闲工人
+   */
+  bool hasIdleWorker() const;
+
+  /**
+   * @brief 获取空闲工人数量
+   */
+  int getIdleWorkerCount() const;
 private:
   VillageDataManager();
   ~VillageDataManager();

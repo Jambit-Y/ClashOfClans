@@ -15,6 +15,9 @@ USING_NS_CC;
 using namespace ui;
 
 const std::string FONT_PATH = "fonts/simhei.ttf";
+// ========== 定义自定义颜色 ==========
+const Color3B COLOR_CYAN = Color3B(0, 255, 255);      // 青色
+const Color3B COLOR_ORANGE = Color3B(255, 165, 0);    // 橙色
 
 //  定义按钮布局配置
 const HUDLayer::ButtonLayout HUDLayer::LAYOUT_TWO_BUTTONS = {
@@ -47,16 +50,27 @@ bool HUDLayer::init() {
   // 1. 当前资源标签
   _goldLabel = Label::createWithTTF("Gold: 0", "fonts/Marker Felt.ttf", 24);
   _goldLabel->setPosition(Vec2(origin.x + 100, origin.y + visibleSize.height - 30));
+  _goldLabel->setColor(Color3B(255, 215, 0));  // 金色 RGB(255, 215, 0)
   this->addChild(_goldLabel);
 
   _elixirLabel = Label::createWithTTF("Elixir: 0", "fonts/Marker Felt.ttf", 24);
   _elixirLabel->setPosition(Vec2(origin.x + 300, origin.y + visibleSize.height - 30));
+  _elixirLabel->setColor(Color3B(255, 0, 255));  // 紫红色（洋红）RGB(255, 0, 255)
   this->addChild(_elixirLabel);
 
   _gemLabel = Label::createWithTTF("Gem: 0", "fonts/Marker Felt.ttf", 24);
   _gemLabel->setPosition(Vec2(origin.x + 500, origin.y + visibleSize.height - 30));
-  _gemLabel->setColor(Color3B::GREEN);
+  _gemLabel->setColor(Color3B(0, 255, 0));  // 绿色 RGB(0, 255, 0)
   this->addChild(_gemLabel);
+
+  // ========== 工人状态显示 ==========
+  _workerLabel = Label::createWithTTF("Workers: 1/1", "fonts/Marker Felt.ttf", 24);
+  _workerLabel->setPosition(Vec2(origin.x + 700, origin.y + visibleSize.height - 30));
+  _workerLabel->setColor(COLOR_CYAN);
+  this->addChild(_workerLabel);
+
+  // 立即更新一次
+  updateWorkerDisplay();
 
   //  新增：预先创建提示Label（复用）
   _tipsLabel = Label::createWithTTF("", FONT_PATH, 30);
@@ -185,7 +199,30 @@ bool HUDLayer::init() {
     }
     hidePlacementUI();
   });
+  // ========== 监听工人状态变化事件 ==========
+// 监听建筑建造完成事件（包括工人小屋瞬间完成）
+  auto buildingUpgradedListener = EventListenerCustom::create("EVENT_BUILDING_UPGRADED",
+                                                              [this](EventCustom* event) {
+    CCLOG("HUDLayer: Building upgraded/completed, updating worker display");
+    updateWorkerDisplay();
+  });
+  _eventDispatcher->addEventListenerWithSceneGraphPriority(buildingUpgradedListener, this);
 
+  // 监听建筑建造完成事件（新建筑完成）
+  auto buildingConstructedListener = EventListenerCustom::create("EVENT_BUILDING_CONSTRUCTED",
+                                                                 [this](EventCustom* event) {
+    CCLOG("HUDLayer: Building construction completed, updating worker display");
+    updateWorkerDisplay();
+  });
+  _eventDispatcher->addEventListenerWithSceneGraphPriority(buildingConstructedListener, this);
+
+  // 监听建筑建造开始事件（需要在 VillageDataManager 中触发）
+  auto constructionStartedListener = EventListenerCustom::create("EVENT_CONSTRUCTION_STARTED",
+                                                                 [this](EventCustom* event) {
+    CCLOG("HUDLayer: Construction started, updating worker display");
+    updateWorkerDisplay();
+  });
+  _eventDispatcher->addEventListenerWithSceneGraphPriority(constructionStartedListener, this);
   // ========== 设置键盘监听器（用于 ESC 退出）==========
   setupKeyboardListener();
 
@@ -315,6 +352,19 @@ void HUDLayer::initActionMenu() {
 
     if (!building) return;
 
+    // ========== 检查0：工人是否空闲（最高优先级）==========
+    if (!dataManager->hasIdleWorker()) {
+      int idle = dataManager->getIdleWorkerCount();
+      int total = dataManager->getTotalWorkers();
+
+      std::string tip = "所有工人都在忙碌！\n";
+      tip += "空闲工人: " + std::to_string(idle) + "/" + std::to_string(total);
+      tip += "\n请购买建筑工人小屋（50宝石）";
+
+      showTips(tip, Color3B::ORANGE);
+      return;
+    }
+
     // ========== 检查1：是否满级 ==========
     if (building->level >= 3) {
       showTips("建筑已达到最大等级！", Color3B::RED);
@@ -348,7 +398,14 @@ void HUDLayer::initActionMenu() {
     if (dataManager->startUpgradeBuilding(_currentSelectedBuildingId)) {
       CCLOG("升级开始成功!");
       hideBuildingActions();
-      showTips("升级开始！", Color3B::GREEN);
+      // ==========  显示升级成功 + 工人状态 ==========
+      int idle = dataManager->getIdleWorkerCount();
+      int total = dataManager->getTotalWorkers();
+
+      std::string tip = "升级开始！\n";
+      tip += "剩余工人: " + std::to_string(idle) + "/" + std::to_string(total);
+
+      showTips(tip, Color3B::GREEN);
     } else {
       showTips("升级失败：资源不足", Color3B::RED);
     }
@@ -799,5 +856,28 @@ void HUDLayer::onKeyPressed(EventKeyboard::KeyCode keyCode, Event* event) {
       }
       exitContinuousBuildMode("用户按ESC退出");
     }
+  }
+}
+
+// ========== 工人状态显示更新 ==========
+void HUDLayer::updateWorkerDisplay() {
+  if (!_workerLabel) return;
+
+  auto dataManager = VillageDataManager::getInstance();
+
+  int idle = dataManager->getIdleWorkerCount();
+  int total = dataManager->getTotalWorkers();
+
+  // 显示格式："Workers: 空闲/总数"
+  std::string text = StringUtils::format("Workers: %d/%d", idle, total);
+  _workerLabel->setString(text);
+
+  // 根据工人状态动态改变颜色
+  if (idle == 0) {
+    _workerLabel->setColor(Color3B::RED);     // 全部忙碌 - 红色警告
+  } else if (idle < total) {
+    _workerLabel->setColor(Color3B::ORANGE);  // 部分忙碌 - 橙色
+  } else {
+    _workerLabel->setColor(COLOR_CYAN);    // 全部空闲 - 青色
   }
 }

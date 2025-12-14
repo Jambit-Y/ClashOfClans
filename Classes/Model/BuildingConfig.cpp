@@ -115,6 +115,26 @@ void BuildingConfig::initConfigs() {
   _configs[103] = laboratory;
 
   // ========== 资源建筑 ==========
+  // 201: 建筑工人小屋 
+  BuildingConfigData builderHut;
+  builderHut.type = 201;
+  builderHut.name = "建筑工人小屋";
+  builderHut.category = "资源";
+  builderHut.spritePathTemplate = "buildings/resource_architecture/builders_hut/Builders_Hut{level}.png";
+  builderHut.gridWidth = 2;           // 2x2 占地
+  builderHut.gridHeight = 2;
+  builderHut.anchorOffset = Vec2(0, -25);  //  2x2建筑标准偏移
+  builderHut.maxLevel = 1;            // 不可升级
+  builderHut.initialCost = 50;        // 固定50宝石
+  builderHut.costType = "gem";        // 宝石购买
+  builderHut.buildTimeSeconds = 0;    // 瞬间完成
+  builderHut.hitPoints = 250;
+  builderHut.damagePerSecond = 0;
+  builderHut.attackRange = 0;
+  builderHut.resourceCapacity = 0;
+  builderHut.productionRate = 0;
+  _configs[201] = builderHut;
+
   // 202: 金矿
   BuildingConfigData goldMine;
   goldMine.type = 202;

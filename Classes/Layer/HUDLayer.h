@@ -52,7 +52,9 @@ private:
   cocos2d::Label* _goldLabel;
   cocos2d::Label* _elixirLabel;
   cocos2d::Label* _gemLabel;
-
+  cocos2d::Label* _workerLabel;
+  // 工人UI更新方法
+  void updateWorkerDisplay();
   cocos2d::Node* _actionMenuNode;
   cocos2d::Label* _buildingNameLabel;
   cocos2d::Label* _upgradeCostLabel;

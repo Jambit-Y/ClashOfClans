@@ -416,7 +416,7 @@ std::vector<ShopItemData> ShopLayer::getDummyData(int categoryIndex) {
     }
     else if (categoryIndex == 1) { // 资源
         std::string path = root + "resource_architecture/";
-        list.push_back({ 201, "建筑工人",     path + "Builders_Hut1.png",       500, "宝石", "0秒" });
+        list.push_back({ 201, "建筑工人",     path + "Builders_Hut1.png",       50, "宝石", "0秒" });
         list.push_back({ 202, "金矿",         path + "Gold_Mine1.png",          150, "圣水", "1分钟" });
         list.push_back({ 203, "圣水收集器",   path + "Elixir_Collector1.png",   150, "金币", "1分钟" });
         list.push_back({ 204, "储金罐",       path + "Gold_Storage1.png",       300, "圣水", "15分钟" });
@@ -451,6 +451,22 @@ void ShopLayer::onPurchaseBuilding(const ShopItemData& data) {
 
   auto dataManager = VillageDataManager::getInstance();
   auto requirements = BuildingRequirements::getInstance();
+
+  // ========== 检查0：工人是否空闲（特殊建筑例外）==========
+  // 城墙（303）和建筑工人小屋（201）不需要工人
+  if (data.id != 303 && data.id != 201) {
+    if (!dataManager->hasIdleWorker()) {
+      int idle = dataManager->getIdleWorkerCount();
+      int total = dataManager->getTotalWorkers();
+
+      std::string tip = "所有工人都在忙碌！\n";
+      tip += "空闲工人: " + std::to_string(idle) + "/" + std::to_string(total);
+      tip += "\n请购买建筑工人小屋（50宝石）";
+
+      showTips(tip, Color3B::ORANGE);
+      return;
+    }
+  }
 
   // 检查大本营等级限制
   int currentTHLevel = dataManager->getTownHallLevel();
@@ -490,7 +506,41 @@ void ShopLayer::onPurchaseBuilding(const ShopItemData& data) {
     showTips("圣水不足!", Color3B::RED);
     return;
   }
+  // ========== 特殊处理：建筑工人小屋（完全模仿其他建筑）==========
+  if (data.id == 201) {
+    CCLOG("ShopLayer: Purchasing builder hut");
 
+    // 扣除宝石（和其他建筑一样的逻辑）
+    if (!dataManager->spendGem(cost)) {
+      showTips("宝石不足!", Color3B::RED);
+      return;
+    }
+
+    // 创建建筑（PLACING 状态，需要玩家放置）
+    int buildingId = dataManager->addBuilding(
+      data.id, 0, 0, 1, BuildingInstance::State::PLACING
+    );
+
+    if (buildingId < 0) {
+      showTips("购买失败!", Color3B::RED);
+      return;
+    }
+
+    CCLOG("ShopLayer: Builder hut created, ID=%d, entering placement mode", buildingId);
+
+    // 通知 VillageLayer 启动放置流程（和其他建筑完全一样）
+    auto scene = this->getScene();
+    if (scene) {
+      auto villageLayer = dynamic_cast<VillageLayer*>(scene->getChildByTag(1));
+      if (villageLayer) {
+        villageLayer->onBuildingPurchased(buildingId);
+      }
+    }
+
+    // 关闭商店
+    this->removeFromParent();
+    return;
+  }
   // ========== 核心修改：检测城墙购买，进入连续建造模式 ==========
   if (data.id == 303) {  // 城墙的 ID
     CCLOG("ShopLayer: Wall purchase detected, entering continuous build mode");
