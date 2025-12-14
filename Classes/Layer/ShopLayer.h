@@ -60,6 +60,7 @@ private:
     const cocos2d::Color4B COLOR_TAB_SELECT = cocos2d::Color4B(100, 200, 50, 255); // 选中(绿)
 
     void showErrorDialog(const std::string& message);
+    void showTips(const std::string& message, const cocos2d::Color3B& color);
 };
 
 #endif // __SHOP_LAYER_H__

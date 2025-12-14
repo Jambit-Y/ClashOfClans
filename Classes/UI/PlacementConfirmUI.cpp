@@ -20,6 +20,17 @@ bool PlacementConfirmUI::init() {
   }
 
   _canPlace = true;
+
+  // ========== 核心修复1:设置 Node 的位置和锚点(和升级按钮完全一样) ==========
+  auto visibleSize = Director::getInstance()->getVisibleSize();
+
+  // 设置整个 Node 的位置(和 _actionMenuNode 一样)
+  this->setPosition(Vec2(visibleSize.width / 2, 100.0f));
+
+  // 设置锚点为中心点(这样缩放时会从中心向外扩展)
+  this->setAnchorPoint(Vec2(0.5f, 0.5f));
+  // =========================================================================
+
   initButtons();
 
   // 默认隐藏
@@ -29,13 +40,16 @@ bool PlacementConfirmUI::init() {
 }
 
 void PlacementConfirmUI::initButtons() {
-  auto visibleSize = Director::getInstance()->getVisibleSize();
+  // ========== 核心修复2:按钮位置改为相对于 Node 中心的偏移 ==========
+  // 原来:按钮位置是绝对屏幕坐标
+  // 现在:按钮位置是相对于 Node (0,0) 的偏移
+  float buttonSpacing = 80.0f;  // 按钮间距
 
-  // 确认按钮（勾）
+  // 确认按钮(绿勾) - 在右侧
   _confirmBtn = Button::create("ImageElements/right.png");
   if (_confirmBtn) {
     _confirmBtn->setScale(0.8f);
-    _confirmBtn->setPosition(Vec2(visibleSize.width / 2 + 80, 150));
+    _confirmBtn->setPosition(Vec2(buttonSpacing, 0));  // 相对于 Node 中心
     _confirmBtn->addClickEventListener([this](Ref*) {
       onConfirmClicked();
     });
@@ -44,11 +58,11 @@ void PlacementConfirmUI::initButtons() {
     CCLOG("PlacementConfirmUI: ERROR - Failed to load right.png");
   }
 
-  // 取消按钮（叉）
+  // 取消按钮(红叉) - 在左侧
   _cancelBtn = Button::create("ImageElements/wrong.png");
   if (_cancelBtn) {
     _cancelBtn->setScale(0.8f);
-    _cancelBtn->setPosition(Vec2(visibleSize.width / 2 - 80, 150));
+    _cancelBtn->setPosition(Vec2(-buttonSpacing, 0));  // 相对于 Node 中心
     _cancelBtn->addClickEventListener([this](Ref*) {
       onCancelClicked();
     });
@@ -56,6 +70,7 @@ void PlacementConfirmUI::initButtons() {
   } else {
     CCLOG("PlacementConfirmUI: ERROR - Failed to load wrong.png");
   }
+  // =========================================================================
 }
 
 void PlacementConfirmUI::setConfirmCallback(ConfirmCallback callback) {
@@ -69,13 +84,14 @@ void PlacementConfirmUI::setCancelCallback(CancelCallback callback) {
 void PlacementConfirmUI::show() {
   this->setVisible(true);
 
-  // 弹入动画
+  // ========== 保持和升级按钮完全相同的动画 ==========
   this->setScale(0.1f);
   this->runAction(EaseBackOut::create(ScaleTo::create(0.2f, 1.0f)));
+  // ========================================================
 }
 
 void PlacementConfirmUI::hide() {
-  // 缩小动画
+  // 缩小消失
   this->runAction(Sequence::create(
     ScaleTo::create(0.1f, 0.1f),
     Hide::create(),
@@ -87,7 +103,7 @@ void PlacementConfirmUI::updateButtonState(bool canPlace) {
   _canPlace = canPlace;
 
   if (_confirmBtn) {
-    // 如果不能放置，确认按钮变灰并禁用
+    // 根据能否放置，确认按钮置灰或启用
     _confirmBtn->setEnabled(canPlace);
     _confirmBtn->setOpacity(canPlace ? 255 : 128);
   }
@@ -97,7 +113,7 @@ void PlacementConfirmUI::onConfirmClicked() {
   if (!_canPlace) {
     // 显示错误提示
     auto visibleSize = Director::getInstance()->getVisibleSize();
-    auto label = Label::createWithTTF("此位置无法放置建筑！", "fonts/simhei.ttf", 28);
+    auto label = Label::createWithTTF("该位置无法放置建筑！", "fonts/simhei.ttf", 28);
     label->setPosition(Vec2(visibleSize.width / 2, visibleSize.height / 2));
     label->setColor(Color3B::RED);
     this->getParent()->addChild(label, 1000);

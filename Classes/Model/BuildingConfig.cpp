@@ -224,7 +224,7 @@ void BuildingConfig::initConfigs() {
   archerTower.spritePathTemplate = "buildings/defence_architecture/archer_tower/Archer_Tower{level}.png";
   archerTower.gridWidth = 3;
   archerTower.gridHeight = 3;
-  archerTower.anchorOffset = Vec2(0, -50);
+  archerTower.anchorOffset = Vec2(0, -35);
   archerTower.maxLevel = 3;
   archerTower.initialCost = 1000;
   archerTower.costType = "gold";  // ¸ÄÎªÓ¢ÎÄ

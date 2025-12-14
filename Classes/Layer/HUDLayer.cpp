@@ -34,6 +34,12 @@ bool HUDLayer::init() {
     return false;
   }
 
+  // ========== 初始化连续建造模式状态 ==========
+  _isContinuousBuildMode = false;
+  _continuousBuildingType = -1;
+  _modeHintLabel = nullptr;
+  _keyboardListener = nullptr;
+
   auto dataManager = VillageDataManager::getInstance();
   auto visibleSize = Director::getInstance()->getVisibleSize();
   Vec2 origin = Director::getInstance()->getVisibleOrigin();
@@ -99,6 +105,19 @@ bool HUDLayer::init() {
         Director::getInstance()->getEventDispatcher()->removeEventListener(_placementTouchListener);
         _placementTouchListener = nullptr;
       }
+
+      // ========== 检查是否在连续建造模式 ==========
+      if (_isContinuousBuildMode) {
+        CCLOG("HUDLayer: In continuous build mode, checking if can continue...");
+
+        // 检查是否可以继续建造
+        if (canContinueBuild()) {
+          CCLOG("HUDLayer: Creating next wall...");
+          createNextWall();
+        } else {
+          exitContinuousBuildMode("资源不足或数量达到上限");
+        }
+      }
     }
   });
 
@@ -109,6 +128,11 @@ bool HUDLayer::init() {
       if (_placementTouchListener) {
         Director::getInstance()->getEventDispatcher()->removeEventListener(_placementTouchListener);
         _placementTouchListener = nullptr;
+      }
+
+      // ========== 如果在连续建造模式，退出模式 ==========
+      if (_isContinuousBuildMode) {
+        exitContinuousBuildMode("用户取消");
       }
     }
   });
@@ -162,6 +186,9 @@ bool HUDLayer::init() {
     hidePlacementUI();
   });
 
+  // ========== 设置键盘监听器（用于 ESC 退出）==========
+  setupKeyboardListener();
+
   return true;
 }
 
@@ -173,6 +200,19 @@ void HUDLayer::cleanup() {
     Director::getInstance()->getEventDispatcher()->removeEventListener(_placementTouchListener);
     _placementTouchListener = nullptr;
     CCLOG("HUDLayer::cleanup - Removed placement touch listener");
+  }
+
+  // ========== 清理键盘监听器 ==========
+  if (_keyboardListener) {
+    Director::getInstance()->getEventDispatcher()->removeEventListener(_keyboardListener);
+    _keyboardListener = nullptr;
+    CCLOG("HUDLayer::cleanup - Removed keyboard listener");
+  }
+
+  // 清理连续建造模式的 UI
+  if (_modeHintLabel) {
+    _modeHintLabel->removeFromParent();
+    _modeHintLabel = nullptr;
   }
   
   // 清理放置控制器
@@ -567,4 +607,220 @@ void HUDLayer::startBuildingPlacement(int buildingId) {
 
   Director::getInstance()->getEventDispatcher()->addEventListenerWithSceneGraphPriority(
     _placementTouchListener, this);
+}
+
+// ========== 进入连续建造模式 ==========
+void HUDLayer::enterContinuousBuildMode(int buildingType) {
+  CCLOG("HUDLayer: Entering continuous build mode for type %d", buildingType);
+
+  _isContinuousBuildMode = true;
+  _continuousBuildingType = buildingType;
+
+  // 创建顶部提示标签
+  auto visibleSize = Director::getInstance()->getVisibleSize();
+
+  _modeHintLabel = Label::createWithTTF(
+    "连续建造模式 | 按ESC退出",
+    FONT_PATH,
+    24
+  );
+  _modeHintLabel->setPosition(visibleSize.width / 2, visibleSize.height - 50);
+  _modeHintLabel->setColor(Color3B::YELLOW);
+  _modeHintLabel->enableOutline(Color4B::BLACK, 2);
+  this->addChild(_modeHintLabel, 1000);
+
+  // 更新 UI 显示剩余资源
+  updateContinuousModeUI();
+
+  // 创建第一个城墙
+  createNextWall();
+}
+
+// ========== 退出连续建造模式 ==========
+void HUDLayer::exitContinuousBuildMode(const std::string& reason) {
+  CCLOG("HUDLayer: Exiting continuous build mode - Reason: %s", reason.c_str());
+
+  _isContinuousBuildMode = false;
+  _continuousBuildingType = -1;
+
+  // 移除提示标签
+  if (_modeHintLabel) {
+    _modeHintLabel->removeFromParent();
+    _modeHintLabel = nullptr;
+  }
+
+  // 显示退出原因（可选）
+  auto visibleSize = Director::getInstance()->getVisibleSize();
+  auto exitLabel = Label::createWithTTF(
+    "已退出连续建造模式: " + reason,
+    FONT_PATH,
+    20
+  );
+  exitLabel->setPosition(visibleSize.width / 2, visibleSize.height / 2);
+  exitLabel->setColor(Color3B::GREEN);
+  exitLabel->enableOutline(Color4B::BLACK, 2);
+  this->addChild(exitLabel, 1000);
+
+  // 2秒后自动消失
+  exitLabel->runAction(Sequence::create(
+    DelayTime::create(2.0f),
+    RemoveSelf::create(),
+    nullptr
+  ));
+}
+
+// ========== 创建下一个城墙 ==========
+void HUDLayer::createNextWall() {
+  auto dataManager = VillageDataManager::getInstance();
+  auto config = BuildingConfig::getInstance()->getConfig(_continuousBuildingType);
+
+  if (!config) {
+    CCLOG("HUDLayer: Failed to get config for type %d", _continuousBuildingType);
+    exitContinuousBuildMode("配置错误");
+    return;
+  }
+
+  // 1. 扣除资源
+  int cost = config->initialCost;
+  if (config->costType == "gold") {
+    if (dataManager->getGold() < cost) {
+      exitContinuousBuildMode("金币不足");
+      return;
+    }
+    dataManager->spendGold(cost);
+  } else if (config->costType == "elixir") {
+    if (dataManager->getElixir() < cost) {
+      exitContinuousBuildMode("圣水不足");
+      return;
+    }
+    dataManager->spendElixir(cost);
+  }
+
+  // 2. 创建建筑数据（PLACING 状态）
+  int buildingId = dataManager->addBuilding(
+    _continuousBuildingType, 0, 0, 1, BuildingInstance::State::PLACING
+  );
+  if (buildingId < 0) {
+    CCLOG("HUDLayer: Failed to create building");
+    exitContinuousBuildMode("创建失败");
+    return;
+  }
+
+  // 3. 通知 VillageLayer 创建精灵
+  auto scene = this->getScene();
+  if (scene) {
+    auto villageLayer = dynamic_cast<VillageLayer*>(scene->getChildByTag(1));
+    if (villageLayer) {
+      villageLayer->onBuildingPurchased(buildingId);
+    }
+  }
+
+
+  // ========== 核心修复:延迟启动放置流程,避免UI冲突 ==========
+  // 第一个城墙确认后,放置UI可能还在淡出动画中
+  // 延迟0.2秒再启动下一个城墙的放置流程,确保UI完全隐藏
+  this->runAction(Sequence::create(
+    DelayTime::create(0.2f),
+    CallFunc::create([this, buildingId]() {
+    // 4. 启动放置流程
+    startBuildingPlacement(buildingId);
+
+    // 5. 更新 UI
+    updateContinuousModeUI();
+
+    CCLOG("HUDLayer: Next wall placement started (ID=%d)", buildingId);
+  }),
+    nullptr
+  ));
+
+  CCLOG("HUDLayer: Created next wall (ID=%d), remaining gold=%d",
+        buildingId, dataManager->getGold());
+}
+
+// ========== 检查是否可以继续建造 ==========
+bool HUDLayer::canContinueBuild() {
+  auto dataManager = VillageDataManager::getInstance();
+  auto requirements = BuildingRequirements::getInstance();
+  auto config = BuildingConfig::getInstance()->getConfig(_continuousBuildingType);
+
+  if (!config) return false;
+
+  // 检查1：资源是否足够
+  int cost = config->initialCost;
+  if (config->costType == "gold" && dataManager->getGold() < cost) {
+    CCLOG("HUDLayer: Not enough gold (%d < %d)", dataManager->getGold(), cost);
+    return false;
+  }
+  if (config->costType == "elixir" && dataManager->getElixir() < cost) {
+    CCLOG("HUDLayer: Not enough elixir (%d < %d)", dataManager->getElixir(), cost);
+    return false;
+  }
+
+  // 检查2：数量是否达到上限
+  int currentTHLevel = dataManager->getTownHallLevel();
+  int maxCount = requirements->getMaxCount(_continuousBuildingType, currentTHLevel);
+
+  int currentCount = 0;
+  for (const auto& building : dataManager->getAllBuildings()) {
+    if (building.type == _continuousBuildingType &&
+        building.state != BuildingInstance::State::PLACING) {
+      currentCount++;
+    }
+  }
+
+  if (currentCount >= maxCount) {
+    CCLOG("HUDLayer: Reached max count (%d >= %d)", currentCount, maxCount);
+    return false;
+  }
+
+  return true;
+}
+
+// ========== 更新连续模式 UI ==========
+void HUDLayer::updateContinuousModeUI() {
+  if (!_modeHintLabel) return;
+
+  auto dataManager = VillageDataManager::getInstance();
+  auto config = BuildingConfig::getInstance()->getConfig(_continuousBuildingType);
+
+  if (!config) return;
+
+  // 计算还能建造多少个
+  int gold = dataManager->getGold();
+  int cost = config->initialCost;
+  int canBuild = (config->costType == "gold") ? (gold / cost) : 999;
+
+  // 更新标签文字
+  std::string text = "连续建造模式: " + config->name +
+    " | 剩余资源: " + std::to_string(gold) + " 金币" +
+    " | 还可建造: " + std::to_string(canBuild) + " 个" +
+    " | 按ESC退出";
+
+  _modeHintLabel->setString(text);
+}
+
+// ========== 设置键盘监听器 ==========
+void HUDLayer::setupKeyboardListener() {
+  _keyboardListener = EventListenerKeyboard::create();
+
+  _keyboardListener->onKeyPressed = CC_CALLBACK_2(HUDLayer::onKeyPressed, this);
+
+  _eventDispatcher->addEventListenerWithSceneGraphPriority(_keyboardListener, this);
+
+  CCLOG("HUDLayer: Keyboard listener set up");
+}
+
+// ========== 键盘事件处理 ==========
+void HUDLayer::onKeyPressed(EventKeyboard::KeyCode keyCode, Event* event) {
+  if (keyCode == EventKeyboard::KeyCode::KEY_ESCAPE) {
+    CCLOG("HUDLayer: ESC key pressed");
+
+    if (_isContinuousBuildMode) {
+      // 如果正在放置建筑，先取消当前建筑
+      if (_placementController && _placementController->isPlacing()) {
+        _placementController->cancelPlacement();
+      }
+      exitContinuousBuildMode("用户按ESC退出");
+    }
+  }
 }
