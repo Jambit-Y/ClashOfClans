@@ -61,22 +61,22 @@ bool BattleScene::init() {
 
     // 4. 加载敌人数据
     loadEnemyVillage();
-    
+
     // ========== 关键修复：更新寻路地图 ==========
     FindPathUtil::getInstance()->updatePathfindingMap();
     CCLOG("BattleScene: Pathfinding map updated for battle");
     // ===========================================
-    
+
     switchState(BattleState::PREPARE);
 
     // 5. 启动时执行一次"进入动画"（延迟一下再淡出，让玩家看清搜索云层）
     float randomStartDelay = cocos2d::RandomHelper::random_real(0.5f, 1.0f);
     this->scheduleOnce([this](float) {
         performCloudTransition(nullptr, true);
-        }, randomStartDelay, "start_anim_delay");
+    }, randomStartDelay, "start_anim_delay");
 
     this->scheduleUpdate();
-   
+
     // 【新增】最后开启触摸监听
     setupTouchListener();
     return true;
@@ -90,8 +90,7 @@ void BattleScene::update(float dt) {
         if (_stateTimer <= 0) {
             if (_currentState == BattleState::PREPARE) {
                 onReturnHomeClicked(); // 侦查时间到回营
-            }
-            else if (_currentState == BattleState::FIGHTING) {
+            } else if (_currentState == BattleState::FIGHTING) {
                 onEndBattleClicked(); // 战斗时间到
             }
         }
@@ -136,7 +135,7 @@ void BattleScene::onNextOpponentClicked() {
 
         // 重置侦查倒计时
         _stateTimer = 30.0f;
-        }, false);
+    }, false);
 }
 
 void BattleScene::onEndBattleClicked() {
@@ -180,31 +179,30 @@ void BattleScene::performCloudTransition(std::function<void()> onMapReloadCallba
         _cloudSprite->runAction(Sequence::create(
             FadeOut::create(0.5f),   // 淡出
             CallFunc::create([this]() {
-                _cloudSprite->setVisible(false);
-                _isSearching = false;
-                if (_hudLayer) _hudLayer->setButtonsEnabled(true);
-                }),
+            _cloudSprite->setVisible(false);
+            _isSearching = false;
+            if (_hudLayer) _hudLayer->setButtonsEnabled(true);
+        }),
             nullptr
         ));
-    }
-    else {
-        // 情况B：点击“下一个”，需要 淡入 -> 随机等待 -> 回调(刷新地图) -> 淡出
+    } else {
+        // 情况B：点击"下一个"，需要 淡入 -> 随机等待 -> 回调(刷新地图) -> 淡出
         _cloudSprite->setVisible(true);
         _cloudSprite->setOpacity(0);
 
         _cloudSprite->runAction(Sequence::create(
             FadeIn::create(0.2f), // 1. 快速淡入变白
             CallFunc::create([=]() {
-                // 云层完全遮挡时，刷新地图数据，玩家看不见突变
-                if (onMapReloadCallback) onMapReloadCallback();
-                }),
+            // 云层完全遮挡时，刷新地图数据，玩家看不见突变
+            if (onMapReloadCallback) onMapReloadCallback();
+        }),
             DelayTime::create(randomWait), // 2. 模拟搜索的随机等待 (0.1s - 2.0s)
             FadeOut::create(0.4f),         // 3. 淡出显示新地图
             CallFunc::create([this]() {
-                _cloudSprite->setVisible(false);
-                _isSearching = false;
-                if (_hudLayer) _hudLayer->setButtonsEnabled(true);
-                }),
+            _cloudSprite->setVisible(false);
+            _isSearching = false;
+            if (_hudLayer) _hudLayer->setButtonsEnabled(true);
+        }),
             nullptr
         ));
     }
@@ -212,21 +210,21 @@ void BattleScene::performCloudTransition(std::function<void()> onMapReloadCallba
 void BattleScene::setupTouchListener() {
     // 如果已经有监听器，先清理
     cleanupTouchListener();
-    
+
     _touchListener = EventListenerTouchOneByOne::create();
-    
+
     // 关键修改：不要全局吞噬，让 UI 层可以接收事件
     _touchListener->setSwallowTouches(false);
-    
+
     _touchListener->onTouchBegan = CC_CALLBACK_2(BattleScene::onTouchBegan, this);
     _touchListener->onTouchMoved = CC_CALLBACK_2(BattleScene::onTouchMoved, this);
     _touchListener->onTouchEnded = CC_CALLBACK_2(BattleScene::onTouchEnded, this);
-    
+
     // 使用固定优先级（数字越小优先级越高），确保比 MoveMapController 更早处理
     _eventDispatcher->addEventListenerWithFixedPriority(_touchListener, -1);
-  
+
     CCLOG("BattleScene: Touch listener setup with fixed priority -1");
-    
+
     // 初始化触摸状态
     _touchStartPos = Vec2::ZERO;
     _isTouchMoving = false;
@@ -234,46 +232,46 @@ void BattleScene::setupTouchListener() {
 
 void BattleScene::cleanupTouchListener() {
     if (_touchListener) {
-    _eventDispatcher->removeEventListener(_touchListener);
+        _eventDispatcher->removeEventListener(_touchListener);
         _touchListener = nullptr;
-      CCLOG("BattleScene: Touch listener cleaned up");
+        CCLOG("BattleScene: Touch listener cleaned up");
     }
 }
 
 void BattleScene::onExit() {
-CCLOG("BattleScene::onExit - Cleaning up resources");
-    
+    CCLOG("BattleScene::onExit - Cleaning up resources");
+
     // 清理触摸监听器
     cleanupTouchListener();
-    
+
     // 调用父类的 onExit
-  Scene::onExit();
+    Scene::onExit();
 }
 
 bool BattleScene::onTouchBegan(cocos2d::Touch* touch, cocos2d::Event* event) {
     _touchStartPos = touch->getLocation();
     _isTouchMoving = false;
-    
+
     // 1. 检查有没有选中兵种
     if (!_hudLayer || _hudLayer->getSelectedTroopId() == -1) {
-    CCLOG("BattleScene: No troop selected, passing event to map controller");
-  return false; // 没选兵，把事件留给地图拖动和 UI
+        CCLOG("BattleScene: No troop selected, passing event to map controller");
+        return false; // 没选兵，把事件留给地图拖动和 UI
     }
 
     // 2. 如果选中了兵种，检查是否点击在 UI 区域上
     if (isTouchOnUI(touch->getLocation())) {
-     CCLOG("BattleScene: Touch on UI, passing event");
-   return false; // 让 UI 处理（比如点击兵种卡片取消选择）
+        CCLOG("BattleScene: Touch on UI, passing event");
+        return false; // 让 UI 处理（比如点击兵种卡片取消选择）
     }
 
- CCLOG("BattleScene: Troop selected (ID=%d), handling touch event", _hudLayer->getSelectedTroopId());
-  return true; // 开始跟踪触摸，等待判断是点击还是拖动
+    CCLOG("BattleScene: Troop selected (ID=%d), handling touch event", _hudLayer->getSelectedTroopId());
+    return true; // 开始跟踪触摸，等待判断是点击还是拖动
 }
 
 void BattleScene::onTouchMoved(cocos2d::Touch* touch, cocos2d::Event* event) {
     Vec2 currentPos = touch->getLocation();
     float distance = _touchStartPos.distance(currentPos);
-    
+
     // 如果移动距离超过阈值，判定为拖动地图
     const float DRAG_THRESHOLD = 15.0f;
     if (distance > DRAG_THRESHOLD) {
@@ -286,17 +284,17 @@ void BattleScene::onTouchEnded(cocos2d::Touch* touch, cocos2d::Event* event) {
     if (!_hudLayer || _hudLayer->getSelectedTroopId() == -1) {
         return;
     }
-    
+
     // 如果是拖动操作，取消兵种选择并允许地图拖动
     if (_isTouchMoving) {
         CCLOG("BattleScene: Drag detected, deselecting troop");
         _hudLayer->clearTroopSelection();
         return;
     }
-    
+
     // 到这里说明是点击操作，处理下兵逻辑
     Vec2 touchPos = touch->getLocation();
-    
+
     // 再次检查是否在 UI 区域（可能是快速点击）
     if (isTouchOnUI(touchPos)) {
         CCLOG("BattleScene: Touch ended on UI, ignoring");
@@ -324,11 +322,22 @@ void BattleScene::onTouchEnded(cocos2d::Touch* touch, cocos2d::Event* event) {
     if (troopLayer) {
         int troopId = _hudLayer->getSelectedTroopId();
 
-        // 简单映射名称 (实际项目应用配置表)
-        std::string name = "Barbarian";
-        if (troopId == 1002) name = "Archer";
+        // ✅ 修复：完整的兵种ID映射
+        std::string name = "Barbarian";  // 默认野蛮人
 
-        CCLOG("BattleScene: Spawning %s at grid(%d, %d)", name.c_str(), gx, gy);
+        if (troopId == 1001) {
+            name = "Barbarian";
+        } else if (troopId == 1002) {
+            name = "Archer";
+        } else if (troopId == 1003) {
+            name = "Goblin";
+        } else if (troopId == 1004) {
+            name = "Giant";
+        } else {
+            CCLOG("BattleScene: Unknown troop ID %d, defaulting to Barbarian", troopId);
+        }
+
+        CCLOG("BattleScene: Spawning %s (ID %d) at grid(%d, %d)", name.c_str(), troopId, gx, gy);
         auto unit = troopLayer->spawnUnit(name, gx, gy);
         if (unit) {
             // 【修改】使用 BattleProcessController 启动AI
@@ -340,7 +349,7 @@ void BattleScene::onTouchEnded(cocos2d::Touch* touch, cocos2d::Event* event) {
                 CCLOG("BattleScene: Switching from PREPARE to FIGHTING");
                 switchState(BattleState::FIGHTING);
             }
-            
+
             // 6. 下兵成功后，保持兵种选择状态（用户可以继续下兵）
             // 如果想要自动取消选择，可以调用：
             // _hudLayer->clearTroopSelection();
@@ -353,30 +362,30 @@ void BattleScene::onTouchEnded(cocos2d::Touch* touch, cocos2d::Event* event) {
 }
 
 bool BattleScene::isTouchOnUI(const Vec2& touchPos) {
-  if (!_hudLayer) return false;
-    
+    if (!_hudLayer) return false;
+
     auto visibleSize = Director::getInstance()->getVisibleSize();
-    
+
     // 定义 UI 区域（根据你的布局调整）
     // 1. 顶部区域（倒计时等）
     const float TOP_UI_HEIGHT = 100.0f;
     if (touchPos.y > visibleSize.height - TOP_UI_HEIGHT) {
-      return true;
+        return true;
     }
-    
+
     // 2. 底部区域（兵种栏和按钮）
- const float BOTTOM_UI_HEIGHT = 150.0f;
+    const float BOTTOM_UI_HEIGHT = 150.0f;
     if (touchPos.y < BOTTOM_UI_HEIGHT) {
         return true;
     }
-    
+
     // 3. 右下角按钮区域（"下一个"按钮）
     const float RIGHT_BUTTON_WIDTH = 100.0f;
     const float RIGHT_BUTTON_HEIGHT = 100.0f;
-    if (touchPos.x > visibleSize.width - RIGHT_BUTTON_WIDTH && 
-     touchPos.y < RIGHT_BUTTON_HEIGHT) {
+    if (touchPos.x > visibleSize.width - RIGHT_BUTTON_WIDTH &&
+        touchPos.y < RIGHT_BUTTON_HEIGHT) {
         return true;
     }
-    
+
     return false;
 }
