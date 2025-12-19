@@ -100,6 +100,13 @@ public:
       float speed = 100.0f,
       const std::function<void()>& callback = nullptr);
 
+  // ===== 生命值系统 =====
+  
+  void takeDamage(int damage);
+  int getCurrentHP() const { return _currentHP; }
+  int getMaxHP() const { return _maxHP; }
+  bool isDead() const { return _currentHP <= 0; }
+
   // ===== 属性访问 =====
   
   std::string getUnitType() const { return _unitType; }
@@ -111,16 +118,26 @@ public:
   
   bool isChangingTarget() const { return _isChangingTarget; }
   void setChangingTarget(bool changing) { _isChangingTarget = changing; }
+  
+  // ===== 建筑锁定状态 =====
+  
+  bool isTargetedByBuilding() const { return _isTargetedByBuilding; }
+  void setTargetedByBuilding(bool targeted);
 
 protected:
   std::string _unitType;
-  UnitTypeID _unitTypeID = UnitTypeID::UNKNOWN;  // 缓存的单位类型ID（初始化时解析一次）
+  UnitTypeID _unitTypeID = UnitTypeID::UNKNOWN;
   AnimationType _currentAnimation;
   bool _isAnimating;
-  Vec2 _currentGridPos;  // 当前网格坐标
-  int _lastGridX = -999; // 上一次更新 Z-Order 的 X 坐标
-  int _lastGridY = -999; // 上一次更新 Z-Order 的 Y 坐标
-  bool _isChangingTarget = false;  // 是否正在切换目标
+  Vec2 _currentGridPos;
+  int _lastGridX = -999;
+  int _lastGridY = -999;
+  bool _isChangingTarget = false;
+  bool _isTargetedByBuilding = false;  // 是否被建筑锁定
+  
+  // 生命值系统
+  int _currentHP = 0;
+  int _maxHP = 0;
   
   static const int ANIMATION_TAG = 1000;
   static const int MOVE_TAG = 1001;

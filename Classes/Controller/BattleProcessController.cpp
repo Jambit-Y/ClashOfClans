@@ -5,6 +5,7 @@
 #include "../Util/GridMapUtils.h"
 #include "../Util/FindPathUtil.h"
 #include <cmath>
+#include <set>
 
 USING_NS_CC;
 
@@ -94,7 +95,13 @@ void BattleProcessController::resetBattleState() {
             building.isDestroyed = false;
             restoredCount++;
         }
+        
+        // 清除防御建筑的锁定目标
+        building.lockedTarget = nullptr;
     }
+    
+    // 【新增】清除累积伤害记录
+    _accumulatedDamage.clear();
 
     dataManager->saveToFile("village.json");
 }
@@ -161,12 +168,7 @@ void BattleProcessController::executeAttack(
         onTargetDestroyed();
     }
     else {
-        unit->runAction(Sequence::create(
-            CallFunc::create([onContinueAttack]() {
-                onContinueAttack();
-            }),
-            nullptr
-        ));
+        onContinueAttack();
     }
 }
 
@@ -351,7 +353,10 @@ const BuildingInstance* BattleProcessController::findTargetWithResourcePriority(
     for (const auto& building : buildings) {
         if (building.isDestroyed || building.currentHP <= 0) continue;
         if (building.state == BuildingInstance::State::PLACING) continue;
+        
+        // 跳过城墙（303）和陷阱（4xx）
         if (building.type == 303) continue;
+        if (building.type >= 400 && building.type < 500) continue;
 
         auto config = BuildingConfig::getInstance()->getConfig(building.type);
         if (!config) continue;
@@ -401,6 +406,11 @@ const BuildingInstance* BattleProcessController::findTargetWithDefensePriority(c
         if (building.isDestroyed || building.currentHP <= 0) continue;
         if (building.state == BuildingInstance::State::PLACING) continue;
         
+        // 跳过城墙（303）和陷阱（4xx）
+        if (building.type == 303) continue;
+        if (building.type >= 400 && building.type < 500) continue;
+        
+        // 气球兵额外跳过城墙（已在上面处理，这里保留代码完整性）
         if (unitType == UnitTypeID::BALLOON && building.type == 303) continue;
 
         auto config = BuildingConfig::getInstance()->getConfig(building.type);
@@ -445,6 +455,234 @@ const BuildingInstance* BattleProcessController::findNearestBuilding(const Vec2&
         return findTargetWithDefensePriority(unitWorldPos, unitType);
     } else {
         return findTargetWithResourcePriority(unitWorldPos, unitType);
+    }
+}
+
+// ==========================================
+// 建筑防御系统 - 查找攻击范围内的兵种
+// ==========================================
+
+BattleUnitSprite* BattleProcessController::findNearestUnitInRange(
+    const BuildingInstance& building, 
+    float attackRangeGrids,
+    BattleTroopLayer* troopLayer) {
+    
+    if (!troopLayer) return nullptr;
+    
+    auto config = BuildingConfig::getInstance()->getConfig(building.type);
+    if (!config) return nullptr;
+    
+    int centerX = building.gridX + config->gridWidth / 2;
+    int centerY = building.gridY + config->gridHeight / 2;
+    
+    auto allUnits = troopLayer->getAllUnits();
+    if (allUnits.empty()) return nullptr;
+    
+    BattleUnitSprite* nearestUnit = nullptr;
+    int minGridDistance = INT_MAX;
+    int attackRangeInt = static_cast<int>(attackRangeGrids);
+    
+    for (auto unit : allUnits) {
+        if (!unit) continue;
+        
+        Vec2 unitGridPos = unit->getGridPosition();
+        int unitGridX = static_cast<int>(unitGridPos.x);
+        int unitGridY = static_cast<int>(unitGridPos.y);
+        
+        int gridDistance = std::max(
+            std::abs(unitGridX - centerX),
+            std::abs(unitGridY - centerY)
+        );
+        
+        if (gridDistance <= attackRangeInt) {
+            if (gridDistance < minGridDistance) {
+                minGridDistance = gridDistance;
+                nearestUnit = unit;
+            }
+        }
+    }
+    
+    if (nearestUnit) {
+        nearestUnit->setTargetedByBuilding(true);
+    }
+    
+    return nearestUnit;
+}
+
+std::vector<BattleUnitSprite*> BattleProcessController::getAllUnitsInRange(
+    const BuildingInstance& building, 
+    float attackRangeGrids,
+    BattleTroopLayer* troopLayer) {
+    
+    std::vector<BattleUnitSprite*> unitsInRange;
+    
+    if (!troopLayer) return unitsInRange;
+    
+    auto config = BuildingConfig::getInstance()->getConfig(building.type);
+    if (!config) return unitsInRange;
+    
+    int centerX = building.gridX + config->gridWidth / 2;
+    int centerY = building.gridY + config->gridHeight / 2;
+    
+    auto allUnits = troopLayer->getAllUnits();
+    int attackRangeInt = static_cast<int>(attackRangeGrids);
+    
+    for (auto unit : allUnits) {
+        if (!unit) continue;
+        
+        Vec2 unitGridPos = unit->getGridPosition();
+        int unitGridX = static_cast<int>(unitGridPos.x);
+        int unitGridY = static_cast<int>(unitGridPos.y);
+        
+        int gridDistance = std::max(
+            std::abs(unitGridX - centerX),
+            std::abs(unitGridY - centerY)
+        );
+        
+        if (gridDistance <= attackRangeInt) {
+            unitsInRange.push_back(unit);
+        }
+    }
+    
+    return unitsInRange;
+}
+
+// ==========================================
+// 建筑防御自动更新系统
+// ==========================================
+
+void BattleProcessController::updateBuildingDefense(BattleTroopLayer* troopLayer) {
+    if (!troopLayer) return;
+    
+    auto dataManager = VillageDataManager::getInstance();
+    auto& buildings = const_cast<std::vector<BuildingInstance>&>(dataManager->getAllBuildings());
+    
+    // 【修复】记录本帧被锁定的兵种
+    std::set<BattleUnitSprite*> targetedUnitsThisFrame;
+    
+    // 获取deltaTime用于伤害计算
+    float deltaTime = Director::getInstance()->getDeltaTime();
+    
+    for (auto& building : buildings) {
+        if (building.isDestroyed || building.currentHP <= 0) continue;
+        if (building.state == BuildingInstance::State::PLACING) continue;
+        
+        if (building.type != 301 && building.type != 302) continue;
+        
+        auto config = BuildingConfig::getInstance()->getConfig(building.type);
+        if (!config) continue;
+        
+        float attackRange = config->attackRange;
+        
+        // 检查当前锁定的目标是否仍然有效
+        BattleUnitSprite* currentTarget = static_cast<BattleUnitSprite*>(building.lockedTarget);
+        
+        if (currentTarget) {
+            // 【修复】每次都重新获取最新的兵种列表
+            auto allUnits = troopLayer->getAllUnits();
+            
+            // 验证目标是否仍在部队列表中（未死亡）
+            bool targetStillAlive = false;
+            for (auto unit : allUnits) {
+                if (unit == currentTarget) {
+                    targetStillAlive = true;
+                    break;
+                }
+            }
+            
+            // 如果目标已死亡，清除锁定
+            if (!targetStillAlive) {
+                // 【修复】先清除累积伤害，再清空指针
+                _accumulatedDamage.erase(currentTarget);
+                building.lockedTarget = nullptr;
+                currentTarget = nullptr;
+            } else {
+                // 检查目标是否仍在攻击范围内
+                int centerX = building.gridX + config->gridWidth / 2;
+                int centerY = building.gridY + config->gridHeight / 2;
+                
+                Vec2 unitGridPos = currentTarget->getGridPosition();
+                int unitGridX = static_cast<int>(unitGridPos.x);
+                int unitGridY = static_cast<int>(unitGridPos.y);
+                
+                int gridDistance = std::max(
+                    std::abs(unitGridX - centerX),
+                    std::abs(unitGridY - centerY)
+                );
+                
+                int attackRangeInt = static_cast<int>(attackRange);
+                
+                // 如果目标超出范围，清除锁定
+                if (gridDistance > attackRangeInt) {
+                    building.lockedTarget = nullptr;
+                    currentTarget = nullptr;
+                }
+            }
+        }
+        
+        // 如果没有锁定目标，搜索新目标
+        if (!currentTarget) {
+            BattleUnitSprite* newTarget = findNearestUnitInRange(building, attackRange, troopLayer);
+            if (newTarget) {
+                building.lockedTarget = static_cast<void*>(newTarget);
+                currentTarget = newTarget;
+            }
+        }
+        
+        // ===== 【修复】使用累积伤害系统对锁定目标造成伤害 =====
+        if (currentTarget) {
+            // 【修复】记录被锁定的兵种
+            targetedUnitsThisFrame.insert(currentTarget);
+            
+            // 累积浮点伤害：damagePerSecond * deltaTime
+            float damageThisFrame = config->damagePerSecond * deltaTime;
+            _accumulatedDamage[currentTarget] += damageThisFrame;
+            
+            // 当累积伤害 >= 1 时，扣除生命值
+            if (_accumulatedDamage[currentTarget] >= 1.0f) {
+                int damageToApply = static_cast<int>(_accumulatedDamage[currentTarget]);
+                
+                // 对兵种造成伤害
+                currentTarget->takeDamage(damageToApply);
+                
+                // 减去已应用的整数部分，保留小数部分
+                _accumulatedDamage[currentTarget] -= damageToApply;
+                
+                // 检查兵种是否死亡
+                if (currentTarget->isDead()) {
+                    CCLOG("BattleProcessController: Unit killed by building %d", building.id);
+                    
+                    // 生成墓碑
+                    Vec2 deathPosition = currentTarget->getPosition();
+                    troopLayer->spawnTombstone(deathPosition);
+                    
+                    // 移除兵种
+                    troopLayer->removeUnit(currentTarget);
+                    
+                    // 清除锁定和累积伤害
+                    building.lockedTarget = nullptr;
+                    _accumulatedDamage.erase(currentTarget);
+                    
+                    // 【修复】从本帧锁定列表中移除（已死亡）
+                    targetedUnitsThisFrame.erase(currentTarget);
+                }
+            }
+        }
+    }
+    
+    // 【修复】在所有删除操作完成后，重新获取最新的兵种列表
+    auto allUnits = troopLayer->getAllUnits();
+    
+    // 【修复】只更新状态真正改变的兵种
+    for (auto unit : allUnits) {
+        if (!unit) continue;
+        
+        bool shouldBeTargeted = (targetedUnitsThisFrame.find(unit) != targetedUnitsThisFrame.end());
+        
+        // 只在状态改变时才调用 setTargetedByBuilding
+        if (unit->isTargetedByBuilding() != shouldBeTargeted) {
+            unit->setTargetedByBuilding(shouldBeTargeted);
+        }
     }
 }
 

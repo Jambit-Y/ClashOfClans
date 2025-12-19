@@ -1,7 +1,8 @@
 ﻿// BattleUnitSprite.cpp
 #include "BattleUnitSprite.h"
 #include "Util/GridMapUtils.h"
-#include "Util/FindPathUtil.h"  // ? 添加寻路工具
+#include "Util/FindPathUtil.h"
+#include "Model/TroopConfig.h"
 #include <algorithm>
 #include <cmath>
 
@@ -24,6 +25,31 @@ bool BattleUnitSprite::init(const std::string& unitType) {
   _isAnimating = false;
   _currentGridPos = Vec2::ZERO;
 
+  // ===== 初始化生命值 =====
+  auto troopConfig = TroopConfig::getInstance();
+  
+  // 根据 unitTypeID 获取对应的兵种ID
+  int troopID = 0;
+  switch (_unitTypeID) {
+    case UnitTypeID::BARBARIAN:    troopID = 1001; break;
+    case UnitTypeID::ARCHER:       troopID = 1002; break;
+    case UnitTypeID::GOBLIN:       troopID = 1003; break;
+    case UnitTypeID::GIANT:        troopID = 1004; break;
+    case UnitTypeID::WALL_BREAKER: troopID = 1005; break;
+    case UnitTypeID::BALLOON:      troopID = 1006; break;
+    default:
+      CCLOG("BattleUnitSprite: Unknown unit type, defaulting to Barbarian HP");
+      troopID = 1001;
+      break;
+  }
+  
+  TroopInfo troopInfo = troopConfig->getTroopById(troopID);
+  _maxHP = troopInfo.hitpoints;
+  _currentHP = _maxHP;
+  
+  CCLOG("BattleUnitSprite: Initialized %s with HP: %d/%d", 
+        unitType.c_str(), _currentHP, _maxHP);
+
   std::string unitTypeLower = unitType;
   std::transform(unitTypeLower.begin(), unitTypeLower.end(),
                  unitTypeLower.begin(), ::tolower);
@@ -38,25 +64,40 @@ bool BattleUnitSprite::init(const std::string& unitType) {
   }
 
   this->setAnchorPoint(Vec2(0.5f, 0.0f));
-  CCLOG("BattleUnitSprite: Created %s (TypeID=%d)", unitType.c_str(), static_cast<int>(_unitTypeID));
-  // 开启定时更新
+  
   this->scheduleUpdate();
-
+  
+  CCLOG("BattleUnitSprite: Created %s (TypeID=%d)", unitType.c_str(), static_cast<int>(_unitTypeID));
   return true;
 }
 
 void BattleUnitSprite::update(float dt) {
-    if (_currentGridPos.x != _lastGridX || _currentGridPos.y != _lastGridY) {
-        // 只有当网格坐标变化时才更新 Z-Order (优化性能)
-        int gridX = (int)std::round(_currentGridPos.x);
-        int gridY = (int)std::round(_currentGridPos.y);
-        
-        // 使用统一公式计算 Z-Order
-        int zOrder = GridMapUtils::calculateZOrder(gridX, gridY);
-        this->setLocalZOrder(zOrder);
-        
-        _lastGridX = gridX;
-        _lastGridY = gridY;
+    Sprite::update(dt);
+    
+    Vec2 currentPos = this->getPosition();
+    Vec2 gridPos = GridMapUtils::pixelToGrid(currentPos);
+    int currentGridX = static_cast<int>(std::floor(gridPos.x));
+    int currentGridY = static_cast<int>(std::floor(gridPos.y));
+    
+    if (currentGridX != _lastGridX || currentGridY != _lastGridY) {
+        _currentGridPos = gridPos;
+        _lastGridX = currentGridX;
+        _lastGridY = currentGridY;
+    }
+}
+
+// ========== 建筑锁定状态可视化 ==========
+void BattleUnitSprite::setTargetedByBuilding(bool targeted) {
+    if (_isTargetedByBuilding == targeted) return;  // 状态未改变
+    
+    _isTargetedByBuilding = targeted;
+    
+    if (targeted) {
+        // 被锁定：变红色
+        this->setColor(Color3B(255, 100, 100));  // 红色高亮
+    } else {
+        // 取消锁定：恢复白色
+        this->setColor(Color3B::WHITE);
     }
 }
 
@@ -527,4 +568,21 @@ void BattleUnitSprite::followPath(
     this->runAction(sequence);
 
     CCLOG("BattleUnitSprite: Following path with %lu waypoints", path.size());
+}
+
+// ===== 生命值系统 =====
+
+void BattleUnitSprite::takeDamage(int damage) {
+    if (_currentHP <= 0) {
+        return; // 已经死亡
+    }
+    
+    _currentHP -= damage;
+    
+    if (_currentHP < 0) {
+        _currentHP = 0;
+    }
+    
+    CCLOG("BattleUnitSprite: %s took %d damage, HP: %d/%d", 
+          _unitType.c_str(), damage, _currentHP, _maxHP);
 }

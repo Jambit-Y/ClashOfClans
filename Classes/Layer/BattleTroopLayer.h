@@ -13,6 +13,7 @@ USING_NS_CC;
  * 1. 管理所有战斗单位的生命周期
  * 2. 提供单位生成、移除接口
  * 3. 纯粹的显示层，不包含控制逻辑
+ * 4. 管理战斗墓碑显示
  */
 class BattleTroopLayer : public Layer {
 public:
@@ -46,9 +47,27 @@ public:
      */
     const std::vector<BattleUnitSprite*>& getAllUnits() const { return _units; }
     
+    /**
+     * @brief 移除指定单位（死亡时调用）
+     */
+    void removeUnit(BattleUnitSprite* unit);
+    
+    /**
+     * @brief 在指定位置生成墓碑
+     */
+    void spawnTombstone(const Vec2& position);
+    
+    /**
+     * @brief 清除所有墓碑（战斗结束时调用）
+     */
+    void clearAllTombstones();
+    
 private:
     // 所有单位列表
     std::vector<BattleUnitSprite*> _units;
+    
+    // 墓碑列表
+    std::vector<Node*> _tombstones;
     
     // 网格常量（从 GridMapUtils 获取）
     static const int GRID_WIDTH = 44;

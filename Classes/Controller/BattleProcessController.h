@@ -4,6 +4,7 @@
 #include "../Sprite/BattleUnitSprite.h"
 #include "../Layer/BattleTroopLayer.h"
 #include "../Model/VillageData.h"
+#include <map>
 
 USING_NS_CC;
 
@@ -26,6 +27,13 @@ public:
     // ========== 常量 =========
     static constexpr float PIXEL_DETOUR_THRESHOLD = 800.0f;
 
+    // ========== 建筑防御系统 ==========
+    BattleUnitSprite* findNearestUnitInRange(const BuildingInstance& building, float attackRange, BattleTroopLayer* troopLayer);
+    std::vector<BattleUnitSprite*> getAllUnitsInRange(const BuildingInstance& building, float attackRange, BattleTroopLayer* troopLayer);
+    
+    // ========== 建筑防御自动更新 ==========
+    void updateBuildingDefense(BattleTroopLayer* troopLayer);
+    
 private:
     BattleProcessController() = default;
     ~BattleProcessController() = default;
@@ -34,6 +42,9 @@ private:
     BattleProcessController& operator=(const BattleProcessController&) = delete;
     
     static BattleProcessController* _instance;
+    
+    // ========== 累积伤害系统 ==========
+    std::map<BattleUnitSprite*, float> _accumulatedDamage;  // 兵种 -> 累积伤害
 
     // ========== 目标选择 ==========
     const BuildingInstance* findTargetWithResourcePriority(const cocos2d::Vec2& unitWorldPos, UnitTypeID unitType);
