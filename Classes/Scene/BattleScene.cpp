@@ -109,6 +109,15 @@ void BattleScene::update(float dt) {
                 onEndBattleClicked(); // 战斗时间到
             }
         }
+        
+        // ========== 建筑防御系统自动更新 ==========
+        if (_currentState == BattleState::FIGHTING) {
+            auto troopLayer = dynamic_cast<BattleTroopLayer*>(_mapLayer->getChildByTag(999));
+            if (troopLayer) {
+                BattleProcessController::getInstance()->updateBuildingDefense(troopLayer);
+            }
+        }
+        // =========================================
     }
 }
 

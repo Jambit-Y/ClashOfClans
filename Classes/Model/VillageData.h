@@ -26,6 +26,10 @@ struct BuildingInstance {
   int currentHP;  // 当前血量（战斗时使用，初始值=配置的hitPoints）
   bool isDestroyed; // 新增：是否已被摧毁（用于渲染）
   // =========================================
+  
+  // ========== 战斗系统：防御建筑锁定目标 =========
+  mutable void* lockedTarget = nullptr;  // 锁定的兵种指针（BattleUnitSprite*）
+  // =============================================
 };
 
 struct VillageData {

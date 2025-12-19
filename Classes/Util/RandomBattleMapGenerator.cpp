@@ -138,8 +138,6 @@ void RandomBattleMapGenerator::placeTownHall(BattleMapData& map, int level) {
     th.isDestroyed = false;
     
     map.buildings.push_back(th);
-    CCLOG("RandomBattleMapGenerator: Placed TownHall level %d at (%d, %d)", 
-          level, th.gridX, th.gridY);
 }
 
 void RandomBattleMapGenerator::placeDefenseBuildings(BattleMapData& map, int count, int townHallLevel, int innerRadius) {
@@ -147,19 +145,22 @@ void RandomBattleMapGenerator::placeDefenseBuildings(BattleMapData& map, int cou
     std::mt19937 rng(static_cast<unsigned int>(seed));
     
     auto requirements = BuildingRequirements::getInstance();
+    auto buildingConfig = BuildingConfig::getInstance();
     
-    // 根据大本营等级获取可用的防御建筑类型及其最大数量
-    std::vector<std::pair<int, int>> availableDefenses; // <type, maxCount>
+    std::vector<std::pair<int, int>> availableDefenses;
     
-    // 加农炮 301
-    if (requirements->getMinTHLevel(CANNON) <= townHallLevel) {
+    if (requirements->getMinTHLevel(CANNON) <= townHallLevel && buildingConfig->getConfig(CANNON)) {
         int maxCount = requirements->getMaxCount(CANNON, townHallLevel);
-        if (maxCount > 0) availableDefenses.push_back({CANNON, maxCount});
+        if (maxCount > 0) {
+            availableDefenses.push_back({CANNON, maxCount});
+        }
     }
-    // 箭塔 302
-    if (requirements->getMinTHLevel(ARCHER_TOWER) <= townHallLevel) {
+    
+    if (requirements->getMinTHLevel(ARCHER_TOWER) <= townHallLevel && buildingConfig->getConfig(ARCHER_TOWER)) {
         int maxCount = requirements->getMaxCount(ARCHER_TOWER, townHallLevel);
-        if (maxCount > 0) availableDefenses.push_back({ARCHER_TOWER, maxCount});
+        if (maxCount > 0) {
+            availableDefenses.push_back({ARCHER_TOWER, maxCount});
+        }
     }
     
     if (availableDefenses.empty()) {
@@ -167,19 +168,16 @@ void RandomBattleMapGenerator::placeDefenseBuildings(BattleMapData& map, int cou
         return;
     }
     
-    // 跟踪每种建筑已放置数量
     std::map<int, int> placedCount;
     for (const auto& def : availableDefenses) {
         placedCount[def.first] = 0;
     }
     
-    // 内部区域 (Wall Inner Zone)
     int innerMinX = CENTER_X - innerRadius + 1;
     int innerMaxX = CENTER_X + innerRadius - 1;
     int innerMinY = CENTER_Y - innerRadius + 1;
     int innerMaxY = CENTER_Y + innerRadius - 1;
     
-    // 外部区域 (Wall Outer Zone)
     int outerMinX = CENTER_X - 10;
     int outerMaxX = CENTER_X + 10;
     int outerMinY = CENTER_Y - 10;
@@ -187,18 +185,16 @@ void RandomBattleMapGenerator::placeDefenseBuildings(BattleMapData& map, int cou
     
     int placed = 0;
     int attempts = 0;
-    const int maxAttempts = count * 5; // 增加尝试次数
+    const int maxAttempts = count * 5;
     
     while (placed < count && attempts < maxAttempts) {
         attempts++;
         
-        // 随机选择一种建筑类型
         std::uniform_int_distribution<int> typeDist(0, static_cast<int>(availableDefenses.size()) - 1);
         int idx = typeDist(rng);
         int type = availableDefenses[idx].first;
         int maxCount = availableDefenses[idx].second;
         
-        // 检查数量限制
         if (placedCount[type] >= maxCount) {
             continue;
         }
@@ -209,19 +205,15 @@ void RandomBattleMapGenerator::placeDefenseBuildings(BattleMapData& map, int cou
         int x, y;
         bool found = false;
         
-        // 策略：80%概率尝试放在墙内，20%放在墙外（增加随机性）
-        // 或者简单的：先尝试墙内，失败再试墙外
-        std::bernoulli_distribution innerProb(0.8); // 80% 几率优先内圈
+        std::bernoulli_distribution innerProb(0.8);
         bool tryInner = innerProb(rng);
         
         if (tryInner) {
-             // 尝试内部
              if (findValidPosition(w, h, innerMinX, innerMaxX, innerMinY, innerMaxY, map.buildings, x, y, rng)) {
                  found = true;
              }
         }
         
-        // 如果内部没找到（或决定试外部），则尝试外部
         if (!found) {
             if (findValidPosition(w, h, outerMinX, outerMaxX, outerMinY, outerMaxY, map.buildings, x, y, rng)) {
                 found = true;
@@ -232,7 +224,6 @@ void RandomBattleMapGenerator::placeDefenseBuildings(BattleMapData& map, int cou
             BuildingInstance building;
             building.id = nextBuildingId++;
             building.type = type;
-            // 建筑等级不超过大本营等级
             std::uniform_int_distribution<int> levelDist(1, townHallLevel);
             building.level = levelDist(rng);
             building.gridX = x;
@@ -248,43 +239,38 @@ void RandomBattleMapGenerator::placeDefenseBuildings(BattleMapData& map, int cou
             map.buildings.push_back(building);
             placedCount[type]++;
             placed++;
-            CCLOG("RandomBattleMapGenerator: Placed defense type=%d level=%d at (%d, %d)", 
-                  type, building.level, x, y);
         }
     }
-    
-    CCLOG("RandomBattleMapGenerator: Placed %d defense buildings", placed);
 }
 
 void RandomBattleMapGenerator::placeResourceBuildings(BattleMapData& map, int count, int townHallLevel) {
     auto seed = std::chrono::high_resolution_clock::now().time_since_epoch().count();
-    std::mt19937 rng(static_cast<unsigned int>(seed + 1));  // 不同种子
+    std::mt19937 rng(static_cast<unsigned int>(seed + 1));
     
     auto requirements = BuildingRequirements::getInstance();
+    auto buildingConfig = BuildingConfig::getInstance();
     
-    // 获取各资源建筑的最大数量限制
     std::map<int, int> maxCounts;
     std::map<int, int> placedCounts;
     
     std::vector<int> resourceTypes = { GOLD_MINE, ELIXIR_COLLECTOR, GOLD_STORAGE, ELIXIR_STORAGE };
+    
     for (int type : resourceTypes) {
-        if (requirements->getMinTHLevel(type) <= townHallLevel) {
+        if (requirements->getMinTHLevel(type) <= townHallLevel && buildingConfig->getConfig(type)) {
             maxCounts[type] = requirements->getMaxCount(type, townHallLevel);
             placedCounts[type] = 0;
         }
     }
     
-    // 资源建筑放置在外围区域
     int minX = MAP_MIN;
     int maxX = MAP_MAX - 3;
     int minY = MAP_MIN;
     int maxY = MAP_MAX - 3;
     
-    // 必须放置：储金罐和圣水瓶各一个（如果解锁了）
     std::vector<int> requiredTypes = { GOLD_STORAGE, ELIXIR_STORAGE };
     for (int type : requiredTypes) {
         if (maxCounts.find(type) == maxCounts.end() || maxCounts[type] <= 0) {
-            continue;  // 未解锁
+            continue;
         }
         
         int w, h;
@@ -295,7 +281,6 @@ void RandomBattleMapGenerator::placeResourceBuildings(BattleMapData& map, int co
             BuildingInstance building;
             building.id = nextBuildingId++;
             building.type = type;
-            // 建筑等级不超过大本营等级
             std::uniform_int_distribution<int> levelDist(1, townHallLevel);
             building.level = levelDist(rng);
             building.gridX = x;
@@ -310,24 +295,20 @@ void RandomBattleMapGenerator::placeResourceBuildings(BattleMapData& map, int co
             
             map.buildings.push_back(building);
             placedCounts[type]++;
-            CCLOG("RandomBattleMapGenerator: Placed required resource type=%d at (%d, %d)", 
-                  type, x, y);
         }
     }
     
-    // 收集可用的资源建筑类型（已解锁且未达上限）
     auto getAvailableTypes = [&]() {
         std::vector<int> available;
         for (const auto& pair : maxCounts) {
-            if (placedCounts[pair.first] < pair.second) {
+            if (placedCounts[pair.first] < pair.second && buildingConfig->getConfig(pair.first)) {
                 available.push_back(pair.first);
             }
         }
         return available;
     };
     
-    // 放置额外的资源建筑
-    int placed = static_cast<int>(requiredTypes.size());
+    int placed = 2;
     int attempts = 0;
     const int maxAttempts = count * 3;
     
@@ -336,7 +317,7 @@ void RandomBattleMapGenerator::placeResourceBuildings(BattleMapData& map, int co
         
         auto availableTypes = getAvailableTypes();
         if (availableTypes.empty()) {
-            break;  // 所有类型都达到上限
+            break;
         }
         
         std::uniform_int_distribution<int> typeDist(0, static_cast<int>(availableTypes.size()) - 1);
@@ -367,8 +348,6 @@ void RandomBattleMapGenerator::placeResourceBuildings(BattleMapData& map, int co
             placed++;
         }
     }
-    
-    CCLOG("RandomBattleMapGenerator: Placed %d resource buildings", placed);
 }
 
 int RandomBattleMapGenerator::placeWalls(BattleMapData& map, int count, int townHallLevel) {
@@ -483,17 +462,18 @@ void RandomBattleMapGenerator::placeTraps(BattleMapData& map, int count, int tow
     std::mt19937 rng(static_cast<unsigned int>(seed + 3));
     
     auto requirements = BuildingRequirements::getInstance();
+    auto buildingConfig = BuildingConfig::getInstance();
     
-    // 根据大本营等级获取可用的陷阱类型及其最大数量
+    // 根据大本营等级获取可用的陷阱类型及其最大数量（只包含有图片资源的）
     std::vector<std::pair<int, int>> availableTraps; // <type, maxCount>
     
-    // 炸弹 401 - 大本1解锁
-    if (requirements->getMinTHLevel(BOMB) <= townHallLevel) {
+    // 炸弹 401
+    if (requirements->getMinTHLevel(BOMB) <= townHallLevel && buildingConfig->getConfig(BOMB)) {
         int maxCount = requirements->getMaxCount(BOMB, townHallLevel);
         if (maxCount > 0) availableTraps.push_back({BOMB, maxCount});
     }
-    // 巨型炸弹 404 - 大本3解锁
-    if (requirements->getMinTHLevel(GIANT_BOMB) <= townHallLevel) {
+    // 巨型炸弹 404
+    if (requirements->getMinTHLevel(GIANT_BOMB) <= townHallLevel && buildingConfig->getConfig(GIANT_BOMB)) {
         int maxCount = requirements->getMaxCount(GIANT_BOMB, townHallLevel);
         if (maxCount > 0) availableTraps.push_back({GIANT_BOMB, maxCount});
     }
@@ -541,7 +521,6 @@ void RandomBattleMapGenerator::placeTraps(BattleMapData& map, int count, int tow
             BuildingInstance trap;
             trap.id = nextBuildingId++;
             trap.type = type;
-            // 陷阱等级不超过大本营等级
             std::uniform_int_distribution<int> levelDist(1, townHallLevel);
             trap.level = levelDist(rng);
             trap.gridX = x;
@@ -555,8 +534,6 @@ void RandomBattleMapGenerator::placeTraps(BattleMapData& map, int count, int tow
             map.buildings.push_back(trap);
             placedCount[type]++;
             placed++;
-            CCLOG("RandomBattleMapGenerator: Placed trap type=%d at (%d, %d) [%d/%d]", 
-                  type, x, y, placedCount[type], maxCount);
         }
     }
     
@@ -637,15 +614,11 @@ void RandomBattleMapGenerator::calculateLootableResources(BattleMapData& map) {
             goldStorageCount++;
             int capacity = buildingConfig->getStorageCapacityByLevel(building.type, building.level);
             totalGoldCapacity += capacity;
-            CCLOG("RandomBattleMapGenerator: Found Gold Storage level %d, capacity %d", 
-                  building.level, capacity);
         }
         else if (building.type == ELIXIR_STORAGE) {
             elixirStorageCount++;
             int capacity = buildingConfig->getStorageCapacityByLevel(building.type, building.level);
             totalElixirCapacity += capacity;
-            CCLOG("RandomBattleMapGenerator: Found Elixir Storage level %d, capacity %d", 
-                  building.level, capacity);
         }
     }
     

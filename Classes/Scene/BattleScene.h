@@ -72,13 +72,14 @@ private:
     int _goldPerStorage = 0;       // 每个储金罐的资源
     int _elixirPerStorage = 0;     // 每个圣水瓶的资源
     cocos2d::EventListenerCustom* _buildingDestroyedListener = nullptr;
-    void setupBuildingDestroyedListener();
     void onBuildingDestroyed(cocos2d::EventCustom* event);
     void checkAllBuildingsDestroyed();  // 检查是否所有建筑都已被摧毁
 
     // 监听点击,生成兵种,并触发 AI
     void setupTouchListener();
     void cleanupTouchListener();
+    void setupBuildingDestroyedListener();
+
     bool onTouchBegan(cocos2d::Touch* touch, cocos2d::Event* event);
     void onTouchMoved(cocos2d::Touch* touch, cocos2d::Event* event);
     void onTouchEnded(cocos2d::Touch* touch, cocos2d::Event* event);
