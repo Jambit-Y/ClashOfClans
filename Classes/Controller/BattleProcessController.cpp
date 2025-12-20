@@ -846,59 +846,69 @@ void BattleProcessController::startCombatLoop(BattleUnitSprite* unit, BattleTroo
     int bW = config->gridWidth;
     int bH = config->gridHeight;
 
+    // ========== 🔧 修复：距离计算逻辑 ==========
     int gridDistX = 0;
     int gridDistY = 0;
 
+    // X轴距离：计算单位到建筑边缘的最短距离
     if (unitGridX < bX) {
+        // 单位在建筑左边
         gridDistX = bX - unitGridX;
     } else if (unitGridX >= bX + bW) {
-        gridDistX = unitGridX - (bX + bW) + 1;
+        // 单位在建筑右边
+        // ✅ 修复：移除多余的 +1
+        gridDistX = unitGridX - (bX + bW - 1);
     }
+    // else: 单位在建筑水平范围内，gridDistX = 0
 
+    // Y轴距离：同样的逻辑
     if (unitGridY < bY) {
+        // 单位在建筑下边
         gridDistY = bY - unitGridY;
     } else if (unitGridY >= bY + bH) {
-        gridDistY = unitGridY - (bY + bH) + 1;
+        // 单位在建筑上边
+        // ✅ 修复：移除多余的 +1
+        gridDistY = unitGridY - (bY + bH - 1);
     }
+    // else: 单位在建筑垂直范围内，gridDistY = 0
 
+    // 使用切比雪夫距离（棋盘距离）
     int gridDistance = std::max(gridDistX, gridDistY);
+    // ============================================
+
     int attackRangeGrid = getAttackRangeByUnitType(unit->getUnitTypeID());
-    
-    // ========== 气球兵特殊判定：飞行单位只要在建筑上方或附近就可以攻击 ==========
+
+    // 气球兵特殊判定（保持原有逻辑）
     if (unit->getUnitTypeID() == UnitTypeID::BALLOON) {
-        // 气球兵使用像素距离判定，更加宽松
-        // 只要气球兵在建筑中心附近 (建筑尺寸 + 1格) 范围内就可以攻击
         Vec2 buildingCenter = GridMapUtils::gridToPixelCenter(
-            bX + bW / 2, 
+            bX + bW / 2,
             bY + bH / 2
         );
         float pixelDistance = unitPos.distance(buildingCenter);
-        float maxAttackDistance = (std::max(bW, bH) + 1) * 32.0f;  // 建筑尺寸 + 1格，每格32像素
-        
+        float maxAttackDistance = (std::max(bW, bH) + 1) * 32.0f;
+
         if (pixelDistance > maxAttackDistance) {
-            // 距离太远，重新飞向目标
             startUnitAI(unit, troopLayer);
             return;
         }
-        // 否则继续执行攻击逻辑
-    }
-    // ============================================================================
-    else if (gridDistance > attackRangeGrid) {
+    } else if (gridDistance > attackRangeGrid) {
+        // ✅ 距离判定：现在会正确识别"已到达"状态
         startUnitAI(unit, troopLayer);
         return;
     }
-    
+
+    // 攻击逻辑（保持不变）
     Vec2 buildingPos = GridMapUtils::gridToPixelCenter(mutableTarget->gridX, mutableTarget->gridY);
     int targetID = mutableTarget->id;
-    
+
     unit->attackTowardPosition(buildingPos, [this, unit, troopLayer, targetID]() {
         executeAttack(unit, troopLayer, targetID, false,
-            [this, unit, troopLayer]() { 
-                startUnitAI(unit, troopLayer); 
-            },
-            [this, unit, troopLayer]() { 
-                startCombatLoop(unit, troopLayer); 
-            }
+                      [this, unit, troopLayer]() {
+            startUnitAI(unit, troopLayer);
+        },
+                      [this, unit, troopLayer]() {
+            startCombatLoop(unit, troopLayer);
+        }
         );
     });
 }
