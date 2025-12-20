@@ -169,6 +169,34 @@ void BattleProcessController::executeAttack(
         return;
     }
 
+    // ========== 炸弹人特殊处理：10倍伤害 + 攻击后自毁 ==========
+    if (unit->getUnitTypeID() == UnitTypeID::WALL_BREAKER) {
+        // 对城墙造成10倍伤害
+        int wallBreakerDamage = dps * 10;
+        liveTarget->currentHP -= wallBreakerDamage;
+        CCLOG("Wall Breaker deals %d damage (10x) to wall!", wallBreakerDamage);
+        
+        // 处理目标摧毁
+        if (liveTarget->currentHP <= 0) {
+            liveTarget->isDestroyed = true;
+            liveTarget->currentHP = 0;
+            FindPathUtil::getInstance()->updatePathfindingMap();
+            Director::getInstance()->getEventDispatcher()->dispatchCustomEvent(
+                "EVENT_BUILDING_DESTROYED", static_cast<void*>(liveTarget)
+            );
+        }
+        
+        // 炸弹人攻击后立即阵亡
+        Vec2 deathPos = unit->getPosition();
+        troopLayer->spawnTombstone(deathPos);
+        troopLayer->removeUnit(unit);
+        CCLOG("Wall Breaker self-destructed after attack!");
+        
+        // 不再调用后续回调，因为炸弹人已死亡
+        return;
+    }
+    // ============================================================
+
     liveTarget->currentHP -= dps;
 
     // 目标被摧毁
@@ -244,7 +272,18 @@ void BattleProcessController::startUnitAI(BattleUnitSprite* unit, BattleTroopLay
     Vec2 unitPos = unit->getPosition();
     
     const BuildingInstance* target = nullptr;
-    if (unit->getUnitTypeID() == UnitTypeID::GOBLIN) {
+    
+    // ========== 炸弹人特殊处理：只攻击城墙 ==========
+    if (unit->getUnitTypeID() == UnitTypeID::WALL_BREAKER) {
+        target = findNearestWall(unitPos);
+        if (!target) {
+            CCLOG("Wall Breaker: No walls found, standing idle");
+            unit->playIdleAnimation();
+            return;  // 没有城墙则原地待机
+        }
+    }
+    // ============================================
+    else if (unit->getUnitTypeID() == UnitTypeID::GOBLIN) {
         target = findTargetWithResourcePriority(unitPos, unit->getUnitTypeID());
     } else if (unit->getUnitTypeID() == UnitTypeID::GIANT || unit->getUnitTypeID() == UnitTypeID::BALLOON) {
         target = findTargetWithDefensePriority(unitPos, unit->getUnitTypeID());
@@ -503,6 +542,12 @@ const BuildingInstance* BattleProcessController::findTargetWithDefensePriority(c
 }
 
 const BuildingInstance* BattleProcessController::findNearestBuilding(const Vec2& unitWorldPos, UnitTypeID unitType) {
+    // ========== 炸弹人特殊处理：只返回城墙 ==========
+    if (unitType == UnitTypeID::WALL_BREAKER) {
+        return findNearestWall(unitWorldPos);
+    }
+    // ================================================
+    
     if (unitType == UnitTypeID::GOBLIN) {
         return findTargetWithResourcePriority(unitWorldPos, unitType);
     } else if (unitType == UnitTypeID::GIANT || unitType == UnitTypeID::BALLOON) {
@@ -510,6 +555,35 @@ const BuildingInstance* BattleProcessController::findNearestBuilding(const Vec2&
     } else {
         return findTargetWithResourcePriority(unitWorldPos, unitType);
     }
+}
+
+// ==========================================
+// 炸弹人专用：查找最近城墙
+// ==========================================
+
+const BuildingInstance* BattleProcessController::findNearestWall(const Vec2& unitWorldPos) {
+    auto dataManager = VillageDataManager::getInstance();
+    const auto& buildings = dataManager->getAllBuildings();
+    
+    const BuildingInstance* nearestWall = nullptr;
+    float minDistanceSq = FLT_MAX;
+    
+    for (const auto& building : buildings) {
+        // 只查找城墙（type=303）
+        if (building.type != 303) continue;
+        if (building.isDestroyed || building.currentHP <= 0) continue;
+        if (building.state == BuildingInstance::State::PLACING) continue;
+        
+        Vec2 bPos = GridMapUtils::gridToPixelCenter(building.gridX, building.gridY);
+        float distSq = unitWorldPos.distanceSquared(bPos);
+        
+        if (distSq < minDistanceSq) {
+            minDistanceSq = distSq;
+            nearestWall = &building;
+        }
+    }
+    
+    return nearestWall;
 }
 
 // ==========================================
