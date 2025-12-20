@@ -53,8 +53,8 @@ static int getAttackRangeByUnitType(UnitTypeID typeID) {
         case UnitTypeID::BARBARIAN:
         case UnitTypeID::GOBLIN:
         case UnitTypeID::GIANT:
+        case UnitTypeID::BALLOON:  // 气球兵也需要 1 格攻击范围，否则无法正常攻击
             return 1;
-        case UnitTypeID::BALLOON:
         case UnitTypeID::WALL_BREAKER:
             return 0;
         default:
@@ -266,6 +266,41 @@ void BattleProcessController::startUnitAI(BattleUnitSprite* unit, BattleTroopLay
     Vec2 targetCenter = GridMapUtils::gridToPixelCenter(target->gridX, target->gridY);
 
     int attackRange = getAttackRangeByUnitType(unit->getUnitTypeID());
+    
+    //气球兵是飞行单位，直接飞向目标建筑边缘，无视城墙和地面障碍物
+    if (unit->getUnitTypeID() == UnitTypeID::BALLOON) {
+        // 计算飞到建筑边缘的攻击位置（而不是飞到中心）
+        auto config = BuildingConfig::getInstance()->getConfig(target->type);
+        int buildingWidth = config ? config->gridWidth : 2;
+        int buildingHeight = config ? config->gridHeight : 2;
+        
+        // 计算建筑中心
+        float buildingCenterX = target->gridX + buildingWidth / 2.0f;
+        float buildingCenterY = target->gridY + buildingHeight / 2.0f;
+        Vec2 buildingCenter = GridMapUtils::gridToPixelCenter(
+            static_cast<int>(buildingCenterX), 
+            static_cast<int>(buildingCenterY)
+        );
+        
+        // 计算从气球当前位置到建筑中心的方向
+        Vec2 direction = buildingCenter - unitPos;
+        direction.normalize();
+        
+        // 计算建筑边缘的攻击点（中心位置减去攻击范围距离）
+        float attackDistancePixels = (attackRange + buildingWidth / 2.0f) * 32.0f;  // 假设每格 32 像素
+        Vec2 attackPosition = buildingCenter - direction * attackDistancePixels;
+        
+        // 如果攻击位置比当前位置更远，就直接飞到建筑中心
+        if (unitPos.distance(attackPosition) > unitPos.distance(buildingCenter)) {
+            attackPosition = buildingCenter;
+        }
+        
+        std::vector<Vec2> directPath = { attackPosition };
+        unit->followPath(directPath, 100.0f, [this, unit, troopLayer]() {
+            startCombatLoop(unit, troopLayer);
+        });
+        return;
+    }
     
     std::vector<Vec2> pathAround = pathfinder->findPathToAttackBuilding(unitPos, *target, attackRange);
     float distAround = calculatePathLength(pathAround);
@@ -503,6 +538,12 @@ BattleUnitSprite* BattleProcessController::findNearestUnitInRange(
     
     for (auto unit : allUnits) {
         if (!unit) continue;
+        
+        // 气球兵是飞行单位，只有箭塔（302）能攻击它
+        // 加农炮（301）只能攻击地面单位
+        if (unit->getUnitTypeID() == UnitTypeID::BALLOON && building.type != 302) {
+            continue;  // 跳过气球兵
+        }
         
         Vec2 unitGridPos = unit->getGridPosition();
         int unitGridX = static_cast<int>(unitGridPos.x);
