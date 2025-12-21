@@ -106,6 +106,10 @@ void BattleProcessController::resetBattleState() {
         building.attackCooldown = 0.0f;
     }
 
+    // ✅ 清理陷阱触发状态
+    _triggeredTraps.clear();
+    _trapTimers.clear();
+
     dataManager->saveToFile("village.json");
 }
 // ==========================================
@@ -200,6 +204,12 @@ void BattleProcessController::executeAttack(
 
 bool BattleProcessController::shouldAbandonWallForBetterPath(BattleUnitSprite* unit, int currentWallID) {
     Vec2 unitPos = unit->getPosition();
+    Vec2 unitGridPos = GridMapUtils::pixelToGrid(unitPos);
+    
+    CCLOG("--- shouldAbandonWallForBetterPath DEBUG ---");
+    CCLOG("  Unit at pixel(%.1f, %.1f), grid(%.1f, %.1f)", 
+          unitPos.x, unitPos.y, unitGridPos.x, unitGridPos.y);
+    CCLOG("  Current wall ID: %d", currentWallID);
     
     const BuildingInstance* bestTarget = nullptr;
     if (unit->getUnitTypeID() == UnitTypeID::GOBLIN) {
@@ -210,7 +220,13 @@ bool BattleProcessController::shouldAbandonWallForBetterPath(BattleUnitSprite* u
         bestTarget = findTargetWithResourcePriority(unitPos, unit->getUnitTypeID());
     }
     
-    if (!bestTarget) return false;
+    if (!bestTarget) {
+        CCLOG("  No best target found, keep attacking wall");
+        return false;
+    }
+    
+    CCLOG("  Best target: ID=%d, Type=%d at grid(%d, %d)",
+          bestTarget->id, bestTarget->type, bestTarget->gridX, bestTarget->gridY);
     
     Vec2 targetCenter = GridMapUtils::gridToPixelCenter(bestTarget->gridX, bestTarget->gridY);
     
@@ -219,6 +235,7 @@ bool BattleProcessController::shouldAbandonWallForBetterPath(BattleUnitSprite* u
     std::vector<Vec2> pathAround = pathfinder->findPathToAttackBuilding(unitPos, *bestTarget, attackRange);
     
     if (pathAround.empty()) {
+        CCLOG("  No path around found, keep attacking wall");
         return false;
     }
     
@@ -226,10 +243,19 @@ bool BattleProcessController::shouldAbandonWallForBetterPath(BattleUnitSprite* u
     float directDist = unitPos.distance(targetCenter);
     float detourCost = pathLength - directDist;
     
+    CCLOG("  Path analysis:");
+    CCLOG("    Path length: %.1f", pathLength);
+    CCLOG("    Direct distance: %.1f", directDist);
+    CCLOG("    Detour cost: %.1f (threshold: %.1f)", detourCost, PIXEL_DETOUR_THRESHOLD);
+    CCLOG("    Path/Direct ratio: %.2f (max allowed: 2.0)", pathLength / directDist);
+    
     if (detourCost <= PIXEL_DETOUR_THRESHOLD && pathLength <= directDist * 2.0f) {
+        CCLOG("  ✓ ABANDON WALL - better path found!");
         return true;
     }
     
+    CCLOG("  ✗ Keep attacking wall - no better path");
+    CCLOG("--- END shouldAbandonWallForBetterPath ---");
     return false;
 }
 
@@ -245,6 +271,11 @@ void BattleProcessController::startUnitAI(BattleUnitSprite* unit, BattleTroopLay
     }
 
     Vec2 unitPos = unit->getPosition();
+    Vec2 unitGridPos = GridMapUtils::pixelToGrid(unitPos);
+    
+    CCLOG("========== START UNIT AI DEBUG ==========");
+    CCLOG("Unit: %s at pixel(%.1f, %.1f), grid(%.1f, %.1f)",
+          unit->getUnitType().c_str(), unitPos.x, unitPos.y, unitGridPos.x, unitGridPos.y);
     
     const BuildingInstance* target = nullptr;
     
@@ -267,9 +298,13 @@ void BattleProcessController::startUnitAI(BattleUnitSprite* unit, BattleTroopLay
     }
 
     if (!target) {
+        CCLOG("No target found, playing idle animation");
         unit->playIdleAnimation();
         return;
     }
+
+    CCLOG("Target selected: ID=%d, Type=%d at grid(%d, %d)",
+          target->id, target->type, target->gridX, target->gridY);
 
     // 【新增】发送目标锁定事件，通知显示 Beacon
     EventCustom event("EVENT_UNIT_TARGET_LOCKED");
@@ -280,6 +315,7 @@ void BattleProcessController::startUnitAI(BattleUnitSprite* unit, BattleTroopLay
     Vec2 targetCenter = GridMapUtils::gridToPixelCenter(target->gridX, target->gridY);
 
     int attackRange = getAttackRangeByUnitType(unit->getUnitTypeID());
+    CCLOG("Attack range: %d grids", attackRange);
     
     //气球兵是飞行单位，直接飞向目标建筑边缘，无视城墙和地面障碍物
     if (unit->getUnitTypeID() == UnitTypeID::BALLOON) {
@@ -320,37 +356,59 @@ void BattleProcessController::startUnitAI(BattleUnitSprite* unit, BattleTroopLay
     float distAround = calculatePathLength(pathAround);
     float distDirect = unitPos.distance(targetCenter);
 
+    CCLOG("Path finding result: pathAround.size()=%zu, distAround=%.1f, distDirect=%.1f",
+          pathAround.size(), distAround, distDirect);
+
     if (!pathAround.empty()) {
         float detourCost = distAround - distDirect;
         
+        CCLOG("Detour cost: %.1f (threshold=%.1f)", detourCost, PIXEL_DETOUR_THRESHOLD);
+        
         if (detourCost <= PIXEL_DETOUR_THRESHOLD && distAround <= distDirect * 2.0f) {
+            CCLOG("✓ Using path around (detour acceptable)");
             unit->followPath(pathAround, 100.0f, [this, unit, troopLayer]() {
                 startCombatLoop(unit, troopLayer);
             });
             return;
+        } else {
+            CCLOG("✗ Path around too long, will check for wall to break");
         }
+    } else {
+        CCLOG("No valid path around found, will check for wall to break");
     }
 
     const BuildingInstance* wallToBreak = getFirstWallInLine(unitPos, targetCenter);
 
     if (wallToBreak && unit->getUnitTypeID() != UnitTypeID::BALLOON) {
+        CCLOG("Wall to break found: ID=%d at grid(%d, %d)", 
+              wallToBreak->id, wallToBreak->gridX, wallToBreak->gridY);
+        
         std::vector<Vec2> pathToWall = pathfinder->findPathToAttackBuilding(unitPos, *wallToBreak, attackRange);
+        CCLOG("Path to wall: size=%zu", pathToWall.size());
 
         if (pathToWall.empty()) {
+            CCLOG("No path to wall, starting forced combat directly");
             startCombatLoopWithForcedTarget(unit, troopLayer, wallToBreak);
         }
         else {
+            CCLOG("Following path to wall");
             unit->followPath(pathToWall, 100.0f, [this, unit, troopLayer, wallToBreak]() {
                 startCombatLoopWithForcedTarget(unit, troopLayer, wallToBreak);
             });
         }
     }
     else {
+        CCLOG("⚠️ NO WALL FOUND in line! Going direct to target (may pass through walls!)");
+        CCLOG("  Unit pos: (%.1f, %.1f)", unitPos.x, unitPos.y);
+        CCLOG("  Target center: (%.1f, %.1f)", targetCenter.x, targetCenter.y);
+        
         std::vector<Vec2> directPath = { targetCenter };
         unit->followPath(directPath, 100.0f, [this, unit, troopLayer]() {
             startCombatLoop(unit, troopLayer);
         });
     }
+    
+    CCLOG("========== END UNIT AI DEBUG ==========\n");
 }
 
 // ==========================================
@@ -361,40 +419,130 @@ const BuildingInstance* BattleProcessController::getFirstWallInLine(const Vec2& 
     auto dataManager = VillageDataManager::getInstance();
     auto pathfinder = FindPathUtil::getInstance();
 
+    CCLOG("--- getFirstWallInLine DEBUG ---");
+    CCLOG("  Start pixel: (%.1f, %.1f)", startPixel.x, startPixel.y);
+    CCLOG("  End pixel: (%.1f, %.1f)", endPixel.x, endPixel.y);
+    
+    Vec2 startGridF = GridMapUtils::pixelToGrid(startPixel);
+    Vec2 endGridF = GridMapUtils::pixelToGrid(endPixel);
+    CCLOG("  Start grid: (%.1f, %.1f)", startGridF.x, startGridF.y);
+    CCLOG("  End grid: (%.1f, %.1f)", endGridF.x, endGridF.y);
+
+    // 方法1: 使用寻路器找到穿墙路径
     std::vector<Vec2> throughPath = pathfinder->findPathIgnoringWalls(startPixel, endPixel);
+    CCLOG("  findPathIgnoringWalls returned %zu points", throughPath.size());
+    
     if (!throughPath.empty()) {
-        for (const auto& worldPt : throughPath) {
+        for (size_t i = 0; i < throughPath.size(); ++i) {
+            const auto& worldPt = throughPath[i];
             Vec2 gridF = GridMapUtils::pixelToGrid(worldPt);
             int gx = static_cast<int>(std::floor(gridF.x + 0.5f));
             int gy = static_cast<int>(std::floor(gridF.y + 0.5f));
 
             BuildingInstance* b = dataManager->getBuildingAtGrid(gx, gy);
-            if (b && b->type == 303 && !b->isDestroyed && b->currentHP > 0) {
-                return b;
+            if (b) {
+                CCLOG("    Path point %zu: grid(%d, %d) has building ID=%d, type=%d, destroyed=%s",
+                      i, gx, gy, b->id, b->type, b->isDestroyed ? "true" : "false");
+                      
+                if (b->type == 303 && !b->isDestroyed && b->currentHP > 0) {
+                    CCLOG("  ✓ Found wall at grid(%d, %d)!", gx, gy);
+                    return b;
+                }
             }
         }
     }
 
+    CCLOG("  No wall found via pathfinder, trying enhanced line scan...");
+    
+    // 方法2: 改进的线性扫描 - 使用更多采样点
     Vec2 startGrid = GridMapUtils::pixelToGrid(startPixel);
     Vec2 endGrid = GridMapUtils::pixelToGrid(endPixel);
     Vec2 diff = endGrid - startGrid;
-    int steps = std::max((int)std::abs(diff.x), (int)std::abs(diff.y));
-    if (steps == 0) return nullptr;
+    
+    // ✅ 修复：使用更细的步长，确保每个格子都被检测到
+    float maxDiff = std::max(std::abs(diff.x), std::abs(diff.y));
+    int steps = static_cast<int>(std::ceil(maxDiff)) * 2;  // 乘以2确保更细的采样
+    if (steps < 1) steps = 1;
+    
+    CCLOG("  Enhanced line scan: %d steps from grid(%.1f, %.1f) to grid(%.1f, %.1f)",
+          steps, startGrid.x, startGrid.y, endGrid.x, endGrid.y);
     
     Vec2 direction = diff / static_cast<float>(steps);
     Vec2 current = startGrid;
     
+    // 用于避免重复检测同一格子
+    std::set<std::pair<int, int>> checkedGrids;
+    
     for (int i = 0; i <= steps; ++i) {
-        int gx = static_cast<int>(std::round(current.x));
-        int gy = static_cast<int>(std::round(current.y));
+        int gx = static_cast<int>(std::floor(current.x));
+        int gy = static_cast<int>(std::floor(current.y));
+        
+        // 检查是否已经检测过这个格子
+        auto gridKey = std::make_pair(gx, gy);
+        if (checkedGrids.find(gridKey) == checkedGrids.end()) {
+            checkedGrids.insert(gridKey);
 
-        BuildingInstance* b = dataManager->getBuildingAtGrid(gx, gy);
-        if (b && b->type == 303 && !b->isDestroyed && b->currentHP > 0) {
-            return b;
+            BuildingInstance* b = dataManager->getBuildingAtGrid(gx, gy);
+            if (b) {
+                CCLOG("    Step %d: grid(%d, %d) has building ID=%d, type=%d",
+                      i, gx, gy, b->id, b->type);
+                      
+                if (b->type == 303 && !b->isDestroyed && b->currentHP > 0) {
+                    CCLOG("  ✓ Found wall at grid(%d, %d) via line scan!", gx, gy);
+                    return b;
+                }
+            }
         }
         current += direction;
     }
+    
+    // 方法3: 遍历所有城墙，检查是否在路径上
+    CCLOG("  Line scan failed, checking all walls for intersection...");
+    const auto& buildings = dataManager->getAllBuildings();
+    
+    for (const auto& building : buildings) {
+        if (building.type != 303) continue;
+        if (building.isDestroyed || building.currentHP <= 0) continue;
+        
+        // 检查城墙是否在起点和终点之间
+        int wallX = building.gridX;
+        int wallY = building.gridY;
+        
+        // 计算城墙是否在路径的包围盒内
+        int minX = static_cast<int>(std::min(startGrid.x, endGrid.x)) - 1;
+        int maxX = static_cast<int>(std::max(startGrid.x, endGrid.x)) + 1;
+        int minY = static_cast<int>(std::min(startGrid.y, endGrid.y)) - 1;
+        int maxY = static_cast<int>(std::max(startGrid.y, endGrid.y)) + 1;
+        
+        if (wallX >= minX && wallX <= maxX && wallY >= minY && wallY <= maxY) {
+            // 检查城墙是否真的在路径上（使用点到线段距离）
+            Vec2 wallPos(wallX + 0.5f, wallY + 0.5f);
+            Vec2 lineDir = endGrid - startGrid;
+            float lineLen = lineDir.length();
+            
+            if (lineLen > 0.01f) {
+                lineDir.normalize();
+                Vec2 toWall = wallPos - startGrid;
+                float proj = toWall.dot(lineDir);
+                
+                // 检查投影点是否在线段范围内
+                if (proj >= 0 && proj <= lineLen) {
+                    Vec2 projPoint = startGrid + lineDir * proj;
+                    float dist = wallPos.distance(projPoint);
+                    
+                    // 如果距离小于1格，认为城墙在路径上
+                    if (dist < 1.5f) {
+                        CCLOG("  ✓ Found wall ID=%d at grid(%d, %d) via intersection check! (dist=%.2f)",
+                              building.id, wallX, wallY, dist);
+                        return &building;
+                    }
+                }
+            }
+        }
+    }
 
+    CCLOG("  ✗ NO WALL FOUND in line between unit and target!");
+    CCLOG("--- END getFirstWallInLine ---");
     return nullptr;
 }
 
@@ -429,7 +577,11 @@ const BuildingInstance* BattleProcessController::findTargetWithResourcePriority(
         auto config = BuildingConfig::getInstance()->getConfig(building.type);
         if (!config) continue;
 
-        Vec2 bPos = GridMapUtils::gridToPixelCenter(building.gridX, building.gridY);
+        // ✅ 修复：使用 getBuildingCenterPixel 获取建筑的真实中心位置
+        Vec2 bPos = GridMapUtils::getBuildingCenterPixel(
+            building.gridX, building.gridY, 
+            config->gridWidth, config->gridHeight
+        );
         float distSq = unitWorldPos.distanceSquared(bPos);
 
         if (unitType == UnitTypeID::GOBLIN) {
@@ -484,7 +636,11 @@ const BuildingInstance* BattleProcessController::findTargetWithDefensePriority(c
         auto config = BuildingConfig::getInstance()->getConfig(building.type);
         if (!config) continue;
 
-        Vec2 bPos = GridMapUtils::gridToPixelCenter(building.gridX, building.gridY);
+        // ✅ 修复：使用 getBuildingCenterPixel 获取建筑的真实中心位置
+        Vec2 bPos = GridMapUtils::getBuildingCenterPixel(
+            building.gridX, building.gridY, 
+            config->gridWidth, config->gridHeight
+        );
         float distSq = unitWorldPos.distanceSquared(bPos);
 
         if (unitType == UnitTypeID::GIANT || unitType == UnitTypeID::BALLOON) {
@@ -849,39 +1005,34 @@ void BattleProcessController::startCombatLoop(BattleUnitSprite* unit, BattleTroo
     int bW = config->gridWidth;
     int bH = config->gridHeight;
 
-    // ========== 🔧 修复：距离计算逻辑 ==========
+    CCLOG("--- startCombatLoop DEBUG ---");
+    CCLOG("  Unit %s at grid(%d, %d)", unit->getUnitType().c_str(), unitGridX, unitGridY);
+    CCLOG("  Target ID=%d Type=%d at grid(%d, %d), size(%d x %d)",
+          mutableTarget->id, mutableTarget->type, bX, bY, bW, bH);
+
+    // ========== 距离计算逻辑 ==========
     int gridDistX = 0;
     int gridDistY = 0;
 
-    // X轴距离：计算单位到建筑边缘的最短距离
     if (unitGridX < bX) {
-        // 单位在建筑左边
         gridDistX = bX - unitGridX;
     } else if (unitGridX >= bX + bW) {
-        // 单位在建筑右边
-        // ✅ 修复：移除多余的 +1
         gridDistX = unitGridX - (bX + bW - 1);
     }
-    // else: 单位在建筑水平范围内，gridDistX = 0
 
-    // Y轴距离：同样的逻辑
     if (unitGridY < bY) {
-        // 单位在建筑下边
         gridDistY = bY - unitGridY;
     } else if (unitGridY >= bY + bH) {
-        // 单位在建筑上边
-        // ✅ 修复：移除多余的 +1
         gridDistY = unitGridY - (bY + bH - 1);
     }
-    // else: 单位在建筑垂直范围内，gridDistY = 0
 
-    // 使用切比雪夫距离（棋盘距离）
     int gridDistance = std::max(gridDistX, gridDistY);
-    // ============================================
-
     int attackRangeGrid = getAttackRangeByUnitType(unit->getUnitTypeID());
 
-    // 气球兵特殊判定（保持原有逻辑）
+    CCLOG("  Distance: X=%d, Y=%d, Max=%d, AttackRange=%d",
+          gridDistX, gridDistY, gridDistance, attackRangeGrid);
+
+    // 气球兵特殊判定
     if (unit->getUnitTypeID() == UnitTypeID::BALLOON) {
         Vec2 buildingCenter = GridMapUtils::gridToPixelCenter(
             bX + bW / 2,
@@ -891,16 +1042,20 @@ void BattleProcessController::startCombatLoop(BattleUnitSprite* unit, BattleTroo
         float maxAttackDistance = (std::max(bW, bH) + 1) * 32.0f;
 
         if (pixelDistance > maxAttackDistance) {
+            CCLOG("  Balloon too far (%.1f > %.1f), restarting AI", pixelDistance, maxAttackDistance);
             startUnitAI(unit, troopLayer);
             return;
         }
     } else if (gridDistance > attackRangeGrid) {
-        // ✅ 距离判定：现在会正确识别"已到达"状态
+        CCLOG("  Out of range (%d > %d), restarting AI", gridDistance, attackRangeGrid);
         startUnitAI(unit, troopLayer);
         return;
     }
 
-    // 攻击逻辑（保持不变）
+    CCLOG("  ✓ In range, attacking target!");
+    CCLOG("--- END startCombatLoop ---");
+
+    // 攻击逻辑
     Vec2 buildingPos = GridMapUtils::gridToPixelCenter(mutableTarget->gridX, mutableTarget->gridY);
     int targetID = mutableTarget->id;
 
@@ -929,7 +1084,9 @@ void BattleProcessController::startCombatLoopWithForcedTarget(BattleUnitSprite* 
         return;
     }
 
+    // ✅ 持续检查：如果正在攻击城墙，随时检查是否有更好的路径
     if (liveTarget->type == 303 && shouldAbandonWallForBetterPath(unit, targetID)) {
+        CCLOG("BattleProcessController: Found better path! Abandoning wall attack.");
         startUnitAI(unit, troopLayer);
         return;
     }
@@ -991,13 +1148,20 @@ void BattleProcessController::startCombatLoopWithForcedTarget(BattleUnitSprite* 
     unit->attackTowardPosition(targetPos, [this, unit, troopLayer, targetID]() {
         executeAttack(unit, troopLayer, targetID, true,
             [this, unit, troopLayer]() {
+                // 目标被摧毁，重新寻找目标
                 startUnitAI(unit, troopLayer);
             },
             [this, unit, troopLayer, targetID]() {
                 auto dm = VillageDataManager::getInstance();
                 auto t = dm->getBuildingById(targetID);
                 if (t && !t->isDestroyed && t->currentHP > 0) {
-                    startCombatLoopWithForcedTarget(unit, troopLayer, t);
+                    // ✅ 每次攻击后都检查是否有更好的路径
+                    if (t->type == 303 && shouldAbandonWallForBetterPath(unit, targetID)) {
+                        CCLOG("BattleProcessController: Better path found after attack! Switching target.");
+                        startUnitAI(unit, troopLayer);
+                    } else {
+                        startCombatLoopWithForcedTarget(unit, troopLayer, t);
+                    }
                 } else {
                     startUnitAI(unit, troopLayer);
                 }
@@ -1223,64 +1387,81 @@ void BattleProcessController::updateDestructionProgress() {
 void BattleProcessController::checkStarConditions(float progress, bool townHallDestroyed) {
     int oldStars = _currentStars;
 
+    // ✅ 修复：三个条件独立累加，每个条件各加1颗星
+    int newStars = 0;
+
     // ========== 第1颗星：摧毁进度 >= 50% ==========
-    if (!_star50Awarded && progress >= 50.0f) {
-        _star50Awarded = true;
-        _currentStars = std::max(_currentStars, 1);
+    if (progress >= 50.0f) {
+        newStars++;
+        
+        if (!_star50Awarded) {
+            _star50Awarded = true;
+            
+            CCLOG("⭐⭐⭐ STAR AWARDED! ⭐⭐⭐");
+            CCLOG("  Reason: 50%% Destruction");
+            CCLOG("  Progress: %.1f%%", progress);
 
-        CCLOG("⭐⭐⭐ STAR AWARDED! ⭐⭐⭐");
-        CCLOG("  Reason: 50%% Destruction");
-        CCLOG("  Progress: %.1f%%", progress);
+            // 发送星星获得事件
+            StarAwardedEventData starData;
+            starData.starIndex = 0;  // 第1颗星（索引0）
+            starData.reason = "50%";
 
-        // 发送星星获得事件
-        StarAwardedEventData starData;
-        starData.starIndex = 0;  // 第1颗星（索引0）
-        starData.reason = "50%";
-
-        EventCustom event("EVENT_STAR_AWARDED");
-        event.setUserData(&starData);
-        Director::getInstance()->getEventDispatcher()->dispatchEvent(&event);
+            EventCustom event("EVENT_STAR_AWARDED");
+            event.setUserData(&starData);
+            Director::getInstance()->getEventDispatcher()->dispatchEvent(&event);
+        }
     }
 
     // ========== 第2颗星：大本营被摧毁 ==========
-    if (townHallDestroyed && !_townHallDestroyed) {
-        _currentStars = std::max(_currentStars, 2);
+    if (townHallDestroyed) {
+        newStars++;
+        
+        if (!_townHallDestroyed) {
+            CCLOG("⭐⭐⭐ STAR AWARDED! ⭐⭐⭐");
+            CCLOG("  Reason: Town Hall Destroyed");
 
-        CCLOG("⭐⭐⭐ STAR AWARDED! ⭐⭐⭐");
-        CCLOG("  Reason: Town Hall Destroyed");
+            // 发送星星获得事件
+            StarAwardedEventData starData;
+            starData.starIndex = 1;  // 第2颗星（索引1）
+            starData.reason = "townhall";
 
-        // 发送星星获得事件
-        StarAwardedEventData starData;
-        starData.starIndex = 1;  // 第2颗星（索引1）
-        starData.reason = "townhall";
-
-        EventCustom event("EVENT_STAR_AWARDED");
-        event.setUserData(&starData);
-        Director::getInstance()->getEventDispatcher()->dispatchEvent(&event);
+            EventCustom event("EVENT_STAR_AWARDED");
+            event.setUserData(&starData);
+            Director::getInstance()->getEventDispatcher()->dispatchEvent(&event);
+        }
     }
 
     // ========== 第3颗星：摧毁进度 == 100% ==========
-    if (!_star100Awarded && progress >= 99.9f) {  // 使用 99.9 避免浮点误差
-        _star100Awarded = true;
-        _currentStars = 3;
+    if (progress >= 99.9f) {  // 使用 99.9 避免浮点误差
+        newStars++;
+        
+        if (!_star100Awarded) {
+            _star100Awarded = true;
 
-        CCLOG("⭐⭐⭐ STAR AWARDED! ⭐⭐⭐");
-        CCLOG("  Reason: 100%% Destruction");
-        CCLOG("  Progress: %.1f%%", progress);
+            CCLOG("⭐⭐⭐ STAR AWARDED! ⭐⭐⭐");
+            CCLOG("  Reason: 100%% Destruction");
+            CCLOG("  Progress: %.1f%%", progress);
 
-        // 发送星星获得事件
-        StarAwardedEventData starData;
-        starData.starIndex = 2;  // 第3颗星（索引2）
-        starData.reason = "100%";
+            // 发送星星获得事件
+            StarAwardedEventData starData;
+            starData.starIndex = 2;  // 第3颗星（索引2）
+            starData.reason = "100%";
 
-        EventCustom event("EVENT_STAR_AWARDED");
-        event.setUserData(&starData);
-        Director::getInstance()->getEventDispatcher()->dispatchEvent(&event);
+            EventCustom event("EVENT_STAR_AWARDED");
+            event.setUserData(&starData);
+            Director::getInstance()->getEventDispatcher()->dispatchEvent(&event);
+        }
     }
+
+    // 更新星数
+    _currentStars = newStars;
 
     // 如果星数发生变化，输出日志
     if (_currentStars != oldStars) {
         CCLOG("BattleProcessController: Stars updated: %d -> %d", oldStars, _currentStars);
+        CCLOG("  - 50%% progress: %s", progress >= 50.0f ? "YES" : "NO");
+        CCLOG("  - Town Hall destroyed: %s", townHallDestroyed ? "YES" : "NO");
+        CCLOG("  - 100%% progress: %s", progress >= 99.9f ? "YES" : "NO");
     }
 }
 
@@ -1312,4 +1493,178 @@ float BattleProcessController::getDestructionProgress() {
 
 int BattleProcessController::getCurrentStars() {
     return _currentStars;
+}
+
+// ==========================================
+// 陷阱系统实现
+// ==========================================
+
+bool BattleProcessController::isUnitInTrapRange(const BuildingInstance& trap, BattleUnitSprite* unit) {
+    if (!unit || unit->isDead()) return false;
+    
+    // 获取兵种网格位置
+    Vec2 unitGridPos = unit->getGridPosition();
+    int unitGridX = static_cast<int>(std::floor(unitGridPos.x));
+    int unitGridY = static_cast<int>(std::floor(unitGridPos.y));
+    
+    int trapX = trap.gridX;
+    int trapY = trap.gridY;
+    
+    // 401: 炸弹 - 1x1 格子，只检查陷阱所在的格子
+    if (trap.type == 401) {
+        return (unitGridX == trapX && unitGridY == trapY);
+    }
+    // 404: 巨型炸弹 - 2x2 格子，检查陷阱所在的4个格子
+    else if (trap.type == 404) {
+        // 巨型炸弹占据 (trapX, trapY) 到 (trapX+1, trapY+1) 的范围
+        return (unitGridX >= trapX && unitGridX <= trapX + 1 &&
+                unitGridY >= trapY && unitGridY <= trapY + 1);
+    }
+    
+    return false;
+}
+
+void BattleProcessController::updateTrapDetection(BattleTroopLayer* troopLayer) {
+    if (!troopLayer) return;
+    
+    auto dataManager = VillageDataManager::getInstance();
+    auto& buildings = const_cast<std::vector<BuildingInstance>&>(dataManager->getAllBuildings());
+    float deltaTime = Director::getInstance()->getDeltaTime();
+    
+    auto allUnits = troopLayer->getAllUnits();
+    if (allUnits.empty()) return;
+    
+    // 遍历所有陷阱
+    for (auto& building : buildings) {
+        // 只处理陷阱（401: 炸弹, 404: 巨型炸弹）
+        if (building.type != 401 && building.type != 404) continue;
+        
+        // 跳过已摧毁或已触发的陷阱
+        if (building.isDestroyed || building.currentHP <= 0) continue;
+        
+        int trapId = building.id;
+        
+        // 检查陷阱是否已经被触发（正在倒计时）
+        if (_triggeredTraps.find(trapId) != _triggeredTraps.end()) {
+            // 更新计时器
+            _trapTimers[trapId] -= deltaTime;
+            
+            if (_trapTimers[trapId] <= 0.0f) {
+                // 时间到，执行爆炸
+                CCLOG("BattleProcessController: Trap %d exploding!", trapId);
+                explodeTrap(&building, troopLayer);
+                
+                // 清除触发状态
+                _triggeredTraps.erase(trapId);
+                _trapTimers.erase(trapId);
+            }
+            continue;
+        }
+        
+        // 检查是否有兵种进入陷阱范围
+        for (auto unit : allUnits) {
+            if (!unit || unit->isDead()) continue;
+            
+            // 气球兵是飞行单位，不会触发地面陷阱
+            if (unit->getUnitTypeID() == UnitTypeID::BALLOON) continue;
+            
+            if (isUnitInTrapRange(building, unit)) {
+                // 触发陷阱，开始0.5秒倒计时
+                CCLOG("BattleProcessController: Trap %d (type=%d) triggered by unit at grid(%d, %d)!",
+                      trapId, building.type,
+                      static_cast<int>(unit->getGridPosition().x),
+                      static_cast<int>(unit->getGridPosition().y));
+                
+                _triggeredTraps.insert(trapId);
+                _trapTimers[trapId] = 0.5f;  // 0.5秒延迟
+                
+                // ✅ 新增：让陷阱显示出来
+                auto mapLayer = troopLayer->getParent();
+                if (mapLayer) {
+                    std::string spriteName = "Building_" + std::to_string(trapId);
+                    auto trapSprite = mapLayer->getChildByName(spriteName);
+                    if (trapSprite) {
+                        trapSprite->setVisible(true);
+                        CCLOG("BattleProcessController: Trap %d now VISIBLE!", trapId);
+                    }
+                }
+                
+                break;  // 一个陷阱只能被触发一次
+            }
+        }
+    }
+}
+
+void BattleProcessController::explodeTrap(BuildingInstance* trap, BattleTroopLayer* troopLayer) {
+    if (!trap || !troopLayer) return;
+    
+    auto config = BuildingConfig::getInstance()->getConfig(trap->type);
+    if (!config) return;
+    
+    int damage = config->damagePerSecond;  // 对于陷阱，这个字段存储爆炸伤害
+    
+    CCLOG("BattleProcessController: Trap %d (type=%d) exploding with %d damage!",
+          trap->id, trap->type, damage);
+    
+    // 获取所有在范围内的兵种
+    auto allUnits = troopLayer->getAllUnits();
+    std::vector<BattleUnitSprite*> affectedUnits;
+    
+    for (auto unit : allUnits) {
+        if (!unit || unit->isDead()) continue;
+        
+        // 气球兵是飞行单位，不会受到地面陷阱伤害
+        if (unit->getUnitTypeID() == UnitTypeID::BALLOON) continue;
+        
+        if (isUnitInTrapRange(*trap, unit)) {
+            affectedUnits.push_back(unit);
+        }
+    }
+    
+    CCLOG("BattleProcessController: %zu units affected by trap explosion", affectedUnits.size());
+    
+    // 对范围内的所有兵种造成伤害
+    for (auto unit : affectedUnits) {
+        unit->takeDamage(damage);
+        CCLOG("BattleProcessController: Unit %s took %d damage from trap, HP: %d",
+              unit->getUnitType().c_str(), damage, unit->getCurrentHP());
+        
+        // 检查是否死亡
+        if (unit->isDead()) {
+            unit->stopAllActions();
+            unit->playDeathAnimation([troopLayer, unit]() {
+                troopLayer->removeUnit(unit);
+            });
+        }
+    }
+    
+    // 播放爆炸特效
+    Vec2 trapPixelPos = GridMapUtils::gridToPixelCenter(trap->gridX, trap->gridY);
+    
+    // 对于巨型炸弹，爆炸位置在2x2的中心
+    if (trap->type == 404) {
+        trapPixelPos = GridMapUtils::gridToPixelCenter(trap->gridX, trap->gridY + 1);
+    }
+    
+    auto explosion = ParticleExplosion::create();
+    explosion->setPosition(trapPixelPos);
+    explosion->setDuration(0.3f);
+    
+    // 巨型炸弹爆炸更大
+    float scale = (trap->type == 404) ? 0.6f : 0.3f;
+    explosion->setScale(scale);
+    explosion->setAutoRemoveOnFinish(true);
+    troopLayer->getParent()->addChild(explosion, 1000);
+    
+    // 标记陷阱为已摧毁（消失）
+    trap->isDestroyed = true;
+    trap->currentHP = 0;
+    
+    // 发送陷阱摧毁事件（用于隐藏精灵）
+    Director::getInstance()->getEventDispatcher()->dispatchCustomEvent(
+        "EVENT_BUILDING_DESTROYED",
+        static_cast<void*>(trap)
+    );
+    
+    CCLOG("BattleProcessController: Trap %d destroyed after explosion", trap->id);
 }

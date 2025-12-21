@@ -132,11 +132,15 @@ void BattleScene::update(float dt) {
             }
         }
         
-        // ========== 建筑防御系统自动更新 ==========
+        // ========== 建筑防御系统和陷阱系统自动更新 ==========
         if (_currentState == BattleState::FIGHTING) {
             auto troopLayer = dynamic_cast<BattleTroopLayer*>(_mapLayer->getChildByTag(999));
             if (troopLayer) {
-                BattleProcessController::getInstance()->updateBuildingDefense(troopLayer);
+                auto controller = BattleProcessController::getInstance();
+                controller->updateBuildingDefense(troopLayer);
+                
+                // ✅ 新增：陷阱检测系统
+                controller->updateTrapDetection(troopLayer);
             }
         }
         // =========================================
@@ -457,6 +461,11 @@ void BattleScene::onTouchEnded(cocos2d::Touch* touch, cocos2d::Event* event) {
             continue;
         }
         
+        // ✅ 跳过陷阱（type 400-499）- 兵种可以部署在陷阱上
+        if (building.type >= 400 && building.type < 500) {
+            continue;
+        }
+        
         // 获取建筑配置以确定尺寸
         auto config = BuildingConfig::getInstance()->getConfig(building.type);
         if (!config) continue;
@@ -707,7 +716,7 @@ void BattleScene::checkAllBuildingsDestroyed() {
         if (building.state == BuildingInstance::State::PLACING) {
             continue;
         }
-        if (building.type == 303) {  // 城墙不计入判定
+        if (building.type == 303||building.type==401||building.type==404) {  // 城墙和陷阱不计入判定
             continue;
         }
         

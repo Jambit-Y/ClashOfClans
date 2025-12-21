@@ -5,6 +5,7 @@
 #include "../Layer/BattleTroopLayer.h"
 #include "../Model/VillageData.h"
 #include <map>
+#include <set>
 
 USING_NS_CC;
 
@@ -33,6 +34,13 @@ public:
     
     // ========== 建筑防御自动更新 ==========
     void updateBuildingDefense(BattleTroopLayer* troopLayer);
+
+    // ========== 陷阱系统 ==========
+    /**
+     * @brief 更新陷阱检测（每帧调用）
+     * @param troopLayer 兵种层
+     */
+    void updateTrapDetection(BattleTroopLayer* troopLayer);
 
     // 炸弹兵自爆攻击（单体伤害版本）
     void performWallBreakerSuicideAttack(
@@ -89,6 +97,10 @@ private:
     // ========== 累积伤害系统 ==========
     std::map<BattleUnitSprite*, float> _accumulatedDamage;  // 兵种 -> 累积伤害
 
+    // ========== 陷阱触发追踪 ==========
+    std::set<int> _triggeredTraps;  // 已触发的陷阱ID（等待爆炸）
+    std::map<int, float> _trapTimers;  // 陷阱ID -> 剩余延迟时间
+
     // ========== 目标选择 ==========
     const BuildingInstance* findTargetWithResourcePriority(const cocos2d::Vec2& unitWorldPos, UnitTypeID unitType);
     const BuildingInstance* findTargetWithDefensePriority(const cocos2d::Vec2& unitWorldPos, UnitTypeID unitType);
@@ -105,6 +117,23 @@ private:
         const std::function<void()>& onTargetDestroyed,
         const std::function<void()>& onContinueAttack
     );
+
+    // ========== 陷阱辅助方法 ==========
+    /**
+     * @brief 检查兵种是否在陷阱范围内
+     * @param trap 陷阱建筑
+     * @param unit 兵种
+     * @return 是否在范围内
+     */
+    bool isUnitInTrapRange(const BuildingInstance& trap, BattleUnitSprite* unit);
+
+    /**
+     * @brief 执行陷阱爆炸
+     * @param trap 陷阱建筑
+     * @param troopLayer 兵种层
+     */
+    void explodeTrap(BuildingInstance* trap, BattleTroopLayer* troopLayer);
+
     // ========== 摧毁进度追踪成员变量 ==========
     int _totalBuildingHP;        // 总血量（不含城墙和陷阱）
     int _currentStars;           // 当前星数 (0-3)
