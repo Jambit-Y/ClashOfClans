@@ -84,6 +84,12 @@ BuildingSprite* BuildingManager::addBuilding(const BuildingInstance& building) {
 
     _buildings[building.id] = sprite;
 
+    // ✅ 陷阱特殊处理：战斗场景中初始不可见
+    if (_isBattleScene && building.type >= 400 && building.type < 500) {
+        sprite->setVisible(false);
+        CCLOG("BuildingManager: Trap ID=%d (type=%d) set to INVISIBLE", building.id, building.type);
+    }
+
     // 防御建筑特殊处理
     if (_isBattleScene && (building.type == 301 || building.type == 302)) {
         createDefenseAnimation(sprite, building);
