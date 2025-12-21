@@ -368,17 +368,17 @@ void AnimationManager::initializeDefaultConfigs() {
 
     // 向右攻击：帧 32-36
     registerAnimationConfig("Goblin", AnimationType::ATTACK, {
-        "goblin", 61, 1, 0.1f, false
+        "goblin", 32, 5, 0.1f, false
                             });
 
     // 向右上攻击：帧 37-40
     registerAnimationConfig("Goblin", AnimationType::ATTACK_UP, {
-        "goblin", 61, 1, 0.1f, false
+        "goblin", 37, 5, 0.1f, false
                             });
 
     // 向右下攻击：帧 28-31
     registerAnimationConfig("Goblin", AnimationType::ATTACK_DOWN, {
-        "goblin", 61, 1, 0.1f, false
+        "goblin", 28, 5, 0.1f, false
                             });
 
     // 死亡动画：帧 41-42
