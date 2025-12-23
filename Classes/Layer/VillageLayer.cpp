@@ -128,10 +128,32 @@ bool VillageLayer::init() {
     }
   });
   _eventDispatcher->addEventListenerWithSceneGraphPriority(speedupListener, this);
+
+  // ========== 新增：初始化当前场景（在最后）==========
+  auto dataManager = VillageDataManager::getInstance();
+  int currentTheme = dataManager->getCurrentThemeId();
+
+  // 如果不是默认场景（经典），需要切换
+  if (currentTheme != 1) {
+      // 延迟一帧切换，确保所有初始化完成
+      this->runAction(cocos2d::Sequence::create(
+          cocos2d::DelayTime::create(0.1f),
+          cocos2d::CallFunc::create([this, currentTheme]() {
+          switchMapBackground(currentTheme);
+      }),
+          nullptr
+      ));
+  }
   return true;
 }
 
 void VillageLayer::cleanup() {
+  // ========== 清理粒子效果 ==========
+  if (_currentParticleEffect) {
+    _currentParticleEffect->stopSystem();
+    _currentParticleEffect->removeFromParent();
+    _currentParticleEffect = nullptr;
+  }
   // 清理建筑移动控制器
   if (_moveBuildingController) {
     delete _moveBuildingController;
@@ -192,7 +214,7 @@ void VillageLayer::initializeBasicProperties() {
 
 // 辅助方法
 Sprite* VillageLayer::createMapSprite() {
-  auto mapSprite = Sprite::create("Scene/LinedVillageScene.jpg");
+  auto mapSprite = Sprite::create("Scene/Map_Crossover.png");
   if (!mapSprite) {
     CCLOG("Error: Failed to load map image");
     return nullptr;
@@ -207,6 +229,14 @@ Sprite* VillageLayer::createMapSprite() {
 BuildingSprite* VillageLayer::getBuildingAtScreenPos(const Vec2& screenPos) {
   Vec2 worldPos = this->convertToNodeSpace(screenPos);
   return _buildingManager->getBuildingAtWorldPos(worldPos);
+}
+
+// ========== 获取当前选中的建筑ID ==========
+int VillageLayer::getSelectedBuildingId() const {
+    if (_currentSelectedBuilding) {
+        return _currentSelectedBuilding->getBuildingId();
+    }
+    return -1;  // 没有选中建筑时返回 -1
 }
 #pragma endregion
 
@@ -391,4 +421,107 @@ void VillageLayer::updateBuildingPreviewPosition(int buildingId, const cocos2d::
 
   CCLOG("VillageLayer: Preview at grid(%d, %d) - %s",
         gridX, gridY, canPlace ? "VALID" : "INVALID");
+}
+
+// ========== 地图切换实现 ==========
+void VillageLayer::switchMapBackground(int themeId) {
+    CCLOG("VillageLayer: Switching to theme %d", themeId);
+
+    auto dataManager = VillageDataManager::getInstance();
+
+    // 1. 确定地图文件路径
+    std::string mapPath;
+    bool needParticle = false;
+
+    switch (themeId) {
+        case 1:  // 经典
+            mapPath = "Scene/VillageScene.png";
+            needParticle = false;
+            break;
+        case 2:  // 冬天
+            mapPath = "Scene/Map_Classic_Winter.png";
+            needParticle = true;
+            break;
+        case 3:  // 皇室
+            mapPath = "Scene/Map_Royale.png";
+            needParticle = false;
+            break;
+        case 4:  // 交叉
+            mapPath = "Scene/Map_Crossover.png";
+            needParticle = false;
+            break;
+        default:
+            CCLOG("VillageLayer: Unknown theme ID %d, using default", themeId);
+            mapPath = "Scene/VillageScene.png";
+            needParticle = false;
+            break;
+    }
+
+    // 2. 清理当前粒子效果（必须在替换地图精灵之前）
+    if (_currentParticleEffect) {
+        _currentParticleEffect->stopSystem();
+        _currentParticleEffect->removeFromParent();
+        _currentParticleEffect = nullptr;
+        CCLOG("VillageLayer: Cleaned up previous particle effect");
+    }
+
+    // 3. 替换地图精灵
+    if (_mapSprite) {
+        cocos2d::Vec2 oldPos = _mapSprite->getPosition();
+        _mapSprite->removeFromParent();
+
+        _mapSprite = cocos2d::Sprite::create(mapPath);
+        if (_mapSprite) {
+            _mapSprite->setAnchorPoint(cocos2d::Vec2::ANCHOR_BOTTOM_LEFT);
+            _mapSprite->setPosition(oldPos);
+            this->addChild(_mapSprite, -1);
+            CCLOG("VillageLayer: Map background changed to %s", mapPath.c_str());
+        } else {
+            CCLOG("VillageLayer: ERROR - Failed to load map %s", mapPath.c_str());
+        }
+    }
+
+    // 4. 如果需要新粒子效果，创建雪花
+    if (needParticle) {
+        CCLOG("VillageLayer: Creating snow particle effect...");
+
+        cocos2d::Size mapSize = _mapSprite->getContentSize();
+
+        _currentParticleEffect = cocos2d::ParticleSnow::create();
+        if (_currentParticleEffect) {
+            _currentParticleEffect->setPosition(cocos2d::Vec2(
+                mapSize.width / 2,
+                mapSize.height + 50
+            ));
+
+            _currentParticleEffect->setPosVar(cocos2d::Vec2(mapSize.width / 2, 0));
+
+            _currentParticleEffect->setGravity(cocos2d::Vec2(0, -50));
+            _currentParticleEffect->setSpeed(80);
+            _currentParticleEffect->setSpeedVar(20);
+            _currentParticleEffect->setLife(12.0f);
+            _currentParticleEffect->setLifeVar(3.0f);
+            _currentParticleEffect->setEmissionRate(20);
+            _currentParticleEffect->setTotalParticles(500);
+
+            _currentParticleEffect->setStartSize(15.0f);
+            _currentParticleEffect->setStartSizeVar(6.0f);
+            _currentParticleEffect->setEndSize(18.0f);
+
+            _currentParticleEffect->setStartColor(cocos2d::Color4F(1.0f, 1.0f, 1.0f, 1.0f));
+            _currentParticleEffect->setEndColor(cocos2d::Color4F(1.0f, 1.0f, 1.0f, 0.0f));
+
+            _mapSprite->addChild(_currentParticleEffect, 100);
+
+            CCLOG("VillageLayer: Snow particle effect created successfully");
+            CCLOG("  - Position: (%.0f, %.0f)", mapSize.width / 2, mapSize.height + 50);
+            CCLOG("  - PosVar: (%.0f, 0)", mapSize.width / 2);
+            CCLOG("  - Emission Rate: 20, Total Particles: 500");
+            CCLOG("  - Size: Start=15, End=18");
+        } else {
+            CCLOG("VillageLayer: ERROR - Failed to create snow particle effect!");
+        }
+    }
+
+    CCLOG("VillageLayer: Theme switch complete");
 }
