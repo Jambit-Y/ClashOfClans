@@ -76,6 +76,9 @@ private:
 
     // 【新增】顶部滚动容器
     cocos2d::ui::ScrollView* _armyScrollView;
+
+    // 【新增】当前正在长按的定时器key（用于防止刷新时误取消）
+    std::string _activeLongPressKey;
 };
 
 #endif // __TRAINING_LAYER_H__

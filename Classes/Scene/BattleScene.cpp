@@ -580,7 +580,9 @@ void BattleScene::cleanupTouchListener() {
 
 bool BattleScene::onTouchBegan(cocos2d::Touch* touch, cocos2d::Event* event) {
     _touchStartPos = touch->getLocation();
+    _currentTouchPos = _touchStartPos;
     _isTouchMoving = false;
+    _isLongPressDeploying = false;
 
     // 1. 检查有没有选中兵种
     if (!_hudLayer || _hudLayer->getSelectedTroopId() == -1) {
@@ -595,179 +597,175 @@ bool BattleScene::onTouchBegan(cocos2d::Touch* touch, cocos2d::Event* event) {
     }
 
     CCLOG("BattleScene: Troop selected (ID=%d), handling touch event", _hudLayer->getSelectedTroopId());
-    return true; // 开始跟踪触摸，等待判断是点击还是拖动
+    
+    // 【新增】立即尝试放置一次
+    if (tryDeployTroopAt(_touchStartPos)) {
+        _isLongPressDeploying = true;
+        
+        // 启动长按定时器：延迟0.3秒后开始，每0.15秒放置一次
+        this->schedule([this](float) {
+            if (_isLongPressDeploying && !_isTouchMoving) {
+                tryDeployTroopAt(_currentTouchPos);
+            }
+        }, 0.15f, CC_REPEAT_FOREVER, 0.3f, "long_press_deploy");
+    }
+    
+    return true; // 开始跟踪触摸
 }
 
 void BattleScene::onTouchMoved(cocos2d::Touch* touch, cocos2d::Event* event) {
     Vec2 currentPos = touch->getLocation();
+    _currentTouchPos = currentPos;  // 【新增】更新当前触摸位置
+    
     float distance = _touchStartPos.distance(currentPos);
 
     // 如果移动距离超过阈值，判定为拖动地图
     const float DRAG_THRESHOLD = 15.0f;
     if (distance > DRAG_THRESHOLD) {
         _isTouchMoving = true;
+        // 【新增】移动时停止长按放置
+        stopLongPressDeploy();
     }
 }
 
 void BattleScene::onTouchEnded(cocos2d::Touch* touch, cocos2d::Event* event) {
+    // 【新增】停止长按放置
+    stopLongPressDeploy();
+    
     // 如果没有选中兵种，不处理
     if (!_hudLayer || _hudLayer->getSelectedTroopId() == -1) {
         return;
     }
 
-    // 如果是拖动操作，取消兵种选择并允许地图拖动
+    // 如果是拖动操作，取消兵种选择
     if (_isTouchMoving) {
         CCLOG("BattleScene: Drag detected, deselecting troop");
         _hudLayer->clearTroopSelection();
         return;
     }
+    
+    // 放置逻辑已在 onTouchBegan 中完成，这里不需要再放置
+    CCLOG("BattleScene: Touch ended, deployment already handled in onTouchBegan");
+}
 
-    // 到这里说明是点击操作，处理下兵逻辑
-    Vec2 touchPos = touch->getLocation();
+// ========== 【新增】停止长按放置 ==========
+void BattleScene::stopLongPressDeploy() {
+    if (_isLongPressDeploying) {
+        _isLongPressDeploying = false;
+        this->unschedule("long_press_deploy");
+        CCLOG("BattleScene: Long press deploy stopped");
+    }
+}
 
-    // 再次检查是否在 UI 区域（可能是快速点击）
+// ========== 【新增】尝试在指定位置放置兵种 ==========
+bool BattleScene::tryDeployTroopAt(const cocos2d::Vec2& touchPos) {
+    // 检查是否在 UI 区域
     if (isTouchOnUI(touchPos)) {
-        CCLOG("BattleScene: Touch ended on UI, ignoring");
-        return;
+        return false;
+    }
+    
+    // 检查是否选中兵种
+    if (!_hudLayer || _hudLayer->getSelectedTroopId() == -1) {
+        return false;
+    }
+    
+    int troopId = _hudLayer->getSelectedTroopId();
+    
+    // 检查兵种剩余数量
+    if (getRemainingTroopCount(troopId) <= 0) {
+        showPlacementTip("该兵种已用完", touchPos);
+        stopLongPressDeploy();  // 兵种用完时停止长按
+        return false;
     }
 
-    CCLOG("BattleScene: Tap detected, spawning troop");
-
-    // 2. 转換坐标
+    // 转换坐标
     Vec2 worldPos = _mapLayer->convertToNodeSpace(touchPos);
     Vec2 gridPos = GridMapUtils::pixelToGrid(worldPos);
     int gx = (int)std::round(gridPos.x);
     int gy = (int)std::round(gridPos.y);
 
-    CCLOG("BattleScene: Touch at grid(%d, %d)", gx, gy);
-
-    // 3. 簡單的邊界檢查 (紅線邏輯以後再細化)
+    // 边界检查
     if (!GridMapUtils::isValidGridPosition(gx, gy)) {
-        CCLOG("BattleScene: Invalid grid position, ignoring");
-        return;
+        return false;
     }
 
-    // 4. 检查点击位置是否在建筑及其周围一圈的禁区内
+    // 检查点击位置是否在建筑禁区内
     auto dataManager = VillageDataManager::getInstance();
     const auto& buildings = dataManager->getAllBuildings();
-    bool isInRestrictedZone = false;
-
+    
     for (const auto& building : buildings) {
-        // 跳过放置中的建筑
-        if (building.state == BuildingInstance::State::PLACING) {
-            continue;
-        }
+        if (building.state == BuildingInstance::State::PLACING) continue;
+        if (building.type >= 400 && building.type < 500) continue;  // 跳过陷阱
 
-        // ✅ 跳过陷阱（type 400-499）- 兵种可以部署在陷阱上
-        if (building.type >= 400 && building.type < 500) {
-            continue;
-        }
-
-        // 获取建筑配置以确定尺寸
         auto config = BuildingConfig::getInstance()->getConfig(building.type);
         if (!config) continue;
 
-        // 建筑的原始范围
         int bx = building.gridX;
         int by = building.gridY;
         int bw = config->gridWidth;
         int bh = config->gridHeight;
 
-        // ✅ 关键修改：扩展检测范围到建筑周围一圈（8个相邻格子）
-        // 禁区范围：[bx-1, bx+bw] x [by-1, by+bh]
-        int minX = std::max(0, bx - 1);           // 防止越界
-        int maxX = std::min(49, bx + bw);         // 防止越界（假设地图是50x50）
-        int minY = std::max(0, by - 1);           // 防止越界
-        int maxY = std::min(49, by + bh);         // 防止越界
+        int minX = std::max(0, bx - 1);
+        int maxX = std::min(49, bx + bw);
+        int minY = std::max(0, by - 1);
+        int maxY = std::min(49, by + bh);
 
         if (gx >= minX && gx <= maxX && gy >= minY && gy <= maxY) {
-            isInRestrictedZone = true;
-            CCLOG("BattleScene: Cannot deploy near building (ID=%d, type=%d) at grid(%d, %d). Building area: [%d-%d, %d-%d], Restricted zone: [%d-%d, %d-%d]",
-                  building.id, building.type, gx, gy,
-                  bx, bx + bw - 1, by, by + bh - 1,
-                  minX, maxX, minY, maxY);
-            break;
+            // 在建筑禁区内，静默返回（长按时不显示提示）
+            return false;
         }
     }
 
-    if (isInRestrictedZone) {
-        showPlacementTip("无法在建筑附近部署兵种", touchPos);
-        return;
-    }
-
-    // 【新增】检查兵种剩余数量
-    int troopId = _hudLayer->getSelectedTroopId();
-    if (getRemainingTroopCount(troopId) <= 0) {
-        showPlacementTip("该兵种已用完", touchPos);
-        return;
-    }
-
-    // 5. 生成士兵并启动 AI
+    // 生成士兵
     auto troopLayer = dynamic_cast<BattleTroopLayer*>(_mapLayer->getChildByTag(999));
-    if (troopLayer) {
-        // 兵种ID映射
-        std::string name = "Barbarian";
-
-        if (troopId == 1001) {
-            name = "Barbarian";
-        } else if (troopId == 1002) {
-            name = "Archer";
-        } else if (troopId == 1003) {
-            name = "Goblin";
-        } else if (troopId == 1004) {
-            name = "Giant";
-        } else if (troopId == 1005) {
-            name = "Wall_Breaker";
-        } else if (troopId == 1006) {
-            name = "Balloon";
-        } else {
-            CCLOG("BattleScene: Unknown troop ID %d, defaulting to Barbarian", troopId);
-        }
-
-        CCLOG("BattleScene: Spawning %s (ID %d) at grid(%d, %d)", name.c_str(), troopId, gx, gy);
-        auto unit = troopLayer->spawnUnit(name, gx, gy);
-        if (unit) {
-            // ✅ 播放部署音效
-            if (troopId == 1001) {
-                AudioManager::getInstance()->playEffect("Audios/barbarian_deploy.mp3", 0.8f);
-            } else if (troopId == 1002) {
-                AudioManager::getInstance()->playEffect("Audios/archer_deploy.mp3", 0.8f);
-            } else if (troopId == 1003) {
-                AudioManager::getInstance()->playEffect("Audios/goblin_deploy.mp3", 0.8f);
-            } else if (troopId == 1004) {
-                AudioManager::getInstance()->playEffect("Audios/giant_deploy.mp3", 0.8f);
-            } else if (troopId == 1005) {
-                AudioManager::getInstance()->playEffect("Audios/wall_breaker_deploy.mp3", 0.8f);
-            } else if (troopId == 1006) {
-                AudioManager::getInstance()->playEffect("Audios/balloon_deploy.mp3", 0.8f);
-            }
-            
-            recordTroopDeployment(troopId, gx, gy);
-            auto controller = BattleProcessController::getInstance();
-            controller->startUnitAI(unit, troopLayer);
-
-            // 【新增】更新兵种数量统计
-            _remainingTroops[troopId]--;
-            _usedTroops[troopId]++;
-            CCLOG("BattleScene: Troop %d deployed. Remaining: %d, Used: %d",
-                  troopId, _remainingTroops[troopId], _usedTroops[troopId]);
-
-            // 【新增】更新 HUD 显示
-            if (_hudLayer) {
-                _hudLayer->updateTroopCount(troopId, _remainingTroops[troopId]);
-            }
-
-            // 自动切换到战斗状态
-            if (_currentState == BattleState::PREPARE) {
-                CCLOG("BattleScene: Switching from PREPARE to FIGHTING");
-                switchState(BattleState::FIGHTING);
-            }
-        } else {
-            CCLOG("BattleScene: Failed to spawn unit");
-        }
-    } else {
+    if (!troopLayer) {
         CCLOG("BattleScene: TroopLayer not found!");
+        return false;
     }
+
+    // 兵种ID映射
+    std::string name = "Barbarian";
+    if (troopId == 1001) name = "Barbarian";
+    else if (troopId == 1002) name = "Archer";
+    else if (troopId == 1003) name = "Goblin";
+    else if (troopId == 1004) name = "Giant";
+    else if (troopId == 1005) name = "Wall_Breaker";
+    else if (troopId == 1006) name = "Balloon";
+
+    auto unit = troopLayer->spawnUnit(name, gx, gy);
+    if (!unit) {
+        return false;
+    }
+
+    // 播放部署音效
+    if (troopId == 1001) AudioManager::getInstance()->playEffect("Audios/barbarian_deploy.mp3", 0.8f);
+    else if (troopId == 1002) AudioManager::getInstance()->playEffect("Audios/archer_deploy.mp3", 0.8f);
+    else if (troopId == 1003) AudioManager::getInstance()->playEffect("Audios/goblin_deploy.mp3", 0.8f);
+    else if (troopId == 1004) AudioManager::getInstance()->playEffect("Audios/giant_deploy.mp3", 0.8f);
+    else if (troopId == 1005) AudioManager::getInstance()->playEffect("Audios/wall_breaker_deploy.mp3", 0.8f);
+    else if (troopId == 1006) AudioManager::getInstance()->playEffect("Audios/balloon_deploy.mp3", 0.8f);
+
+    // 记录并启动AI
+    recordTroopDeployment(troopId, gx, gy);
+    BattleProcessController::getInstance()->startUnitAI(unit, troopLayer);
+
+    // 更新数量统计
+    _remainingTroops[troopId]--;
+    _usedTroops[troopId]++;
+    CCLOG("BattleScene: Troop %d deployed at (%d,%d). Remaining: %d", 
+          troopId, gx, gy, _remainingTroops[troopId]);
+
+    // 更新 HUD
+    if (_hudLayer) {
+        _hudLayer->updateTroopCount(troopId, _remainingTroops[troopId]);
+    }
+
+    // 自动切换到战斗状态
+    if (_currentState == BattleState::PREPARE) {
+        switchState(BattleState::FIGHTING);
+    }
+
+    return true;
 }
 
 bool BattleScene::isTouchOnUI(const Vec2& touchPos) {
