@@ -67,17 +67,27 @@ bool BattleMapLayer::init() {
 void BattleMapLayer::reloadMap() {
     CCLOG("BattleMapLayer: Reloading map with new random data...");
 
-    // 1. 生成新的随机地图
+    // 1. 随机更换地图背景
+    if (_mapSprite) {
+        _mapSprite->removeFromParent();
+        _mapSprite = nullptr;
+    }
+    _mapSprite = createMapSprite();
+    if (_mapSprite) {
+        this->addChild(_mapSprite, -1);  // 放在最底层
+    }
+
+    // 2. 生成新的随机地图
     auto dataManager = VillageDataManager::getInstance();
     dataManager->generateRandomBattleMap(0);
 
-    // 2. 清理旧的 BuildingManager
+    // 3. 清理旧的 BuildingManager
     if (_buildingManager) {
         delete _buildingManager;
         _buildingManager = nullptr;
     }
 
-    // 3. 创建新的 BuildingManager
+    // 4. 创建新的 BuildingManager
     _buildingManager = new BuildingManager(this, true);
 
     // 【新增】输出建筑布局
@@ -167,9 +177,21 @@ void BattleMapLayer::logBuildingLayout(const std::string& context) {
 }
 
 Sprite* BattleMapLayer::createMapSprite() {
-    auto mapSprite = Sprite::create("Scene/LinedVillageScene.jpg");
+    // 从4张地图中随机选择一张
+    static const std::vector<std::string> mapImages = {
+        "Scene/VillageScene.png",
+        "Scene/Map_Classic_Winter.png",
+        "Scene/Map_Crossover.png",
+        "Scene/Map_Royale.png"
+    };
+    
+    int randomIndex = cocos2d::RandomHelper::random_int(0, (int)mapImages.size() - 1);
+    const std::string& selectedMap = mapImages[randomIndex];
+    CCLOG("BattleMapLayer: Selected random map: %s", selectedMap.c_str());
+    
+    auto mapSprite = Sprite::create(selectedMap);
     if (!mapSprite) {
-        CCLOG("Error: Failed to load map image");
+        CCLOG("Error: Failed to load map image: %s", selectedMap.c_str());
         return nullptr;
     }
     mapSprite->setAnchorPoint(Vec2::ANCHOR_BOTTOM_LEFT);
