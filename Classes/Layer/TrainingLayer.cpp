@@ -40,10 +40,23 @@ bool TrainingLayer::init() {
     auto shieldLayer = LayerColor::create(Color4B(0, 0, 0, 180));
     this->addChild(shieldLayer);
 
-    // 设置触摸吞噬
+    // 设置触摸吞噬，同时处理触摸结束时的定时器清理
     auto listener = EventListenerTouchOneByOne::create();
     listener->setSwallowTouches(true);
     listener->onTouchBegan = [](Touch* t, Event* e) { return true; };
+    // 【修复】在 Layer 级别监听触摸结束，确保即使按钮被销毁也能取消定时器
+    listener->onTouchEnded = [this](Touch* t, Event* e) {
+        if (!_activeLongPressKey.empty()) {
+            this->unschedule(_activeLongPressKey);
+            _activeLongPressKey.clear();
+        }
+    };
+    listener->onTouchCancelled = [this](Touch* t, Event* e) {
+        if (!_activeLongPressKey.empty()) {
+            this->unschedule(_activeLongPressKey);
+            _activeLongPressKey.clear();
+        }
+    };
     _eventDispatcher->addEventListenerWithSceneGraphPriority(listener, this);
 
     // 2. 初始化核心 UI
@@ -242,7 +255,9 @@ Widget* TrainingLayer::createArmyUnitCell(int troopId, int count) {
 
     auto numLabel = Label::createWithTTF(StringUtils::format("x%d", count), TRAIN_FONT, 16);
     numLabel->setPosition(20, 10); // 居中于 numBg
+    numLabel->setTag(100); // 【新增】设置 tag 以便后续更新
     numBg->addChild(numLabel);
+    numBg->setTag(101); // numBg 的 tag
 
     // 4. 红色删除按钮 (右上角 -)
     auto removeBtn = Button::create();
@@ -270,25 +285,39 @@ Widget* TrainingLayer::createArmyUnitCell(int troopId, int count) {
 
     widget->addChild(removeBtn);
 
+    // 【新增】设置 widget 的 tag 为 troopId，以便后续查找
+    widget->setTag(troopId);
+
     return widget;
 }
+
 // ==========================================
 // 刷新堆叠显示
 // ==========================================
 void TrainingLayer::updateArmyView() {
     if (!_armyScrollView) return;
 
+    // 【修复】在刷新视图前，停止所有 remove_troop_ 的定时器
+    // 但跳过当前正在活跃的长按定时器
+    auto allConfig = TroopConfig::getInstance()->getAllTroops();
+    for (const auto& info : allConfig) {
+        std::string key = "remove_troop_" + std::to_string(info.id);
+        if (key != _activeLongPressKey) {
+            this->unschedule(key);
+        }
+    }
+
     _armyScrollView->removeAllChildren();
 
     auto dataManager = VillageDataManager::getInstance();
-    auto allConfig = TroopConfig::getInstance()->getAllTroops(); // 获取所有配置以保持顺序
+    auto allConfigForIteration = TroopConfig::getInstance()->getAllTroops(); // 获取所有配置以保持顺序
 
     float startX = 0;
     float padding = 10.0f;
     float cellSize = 90.0f;
 
     // 遍历所有可能的兵种ID
-    for (const auto& info : allConfig) {
+    for (const auto& info : allConfigForIteration) {
         int id = info.id;
         int count = dataManager->getTroopCount(id); // 向 Manager 查询数量
 
@@ -313,8 +342,29 @@ void TrainingLayer::removeTroop(int troopId) {
 
     // 调用 Manager 移除1个单位
     if (dataManager->removeTroop(troopId, 1)) {
-        // 如果移除成功，刷新界面
+        // 刷新容量标签
         updateCapacityLabel();
+        
+        int newCount = dataManager->getTroopCount(troopId);
+        
+        // 【修复】如果正在长按且数量还大于0，只更新数量标签而不重建视图
+        if (!_activeLongPressKey.empty() && newCount > 0) {
+            // 查找对应的 cell 并更新数量
+            auto cell = _armyScrollView->getChildByTag(troopId);
+            if (cell) {
+                // 找到 numBg (tag=101)，再找 numLabel (tag=100)
+                auto numBg = cell->getChildByTag(101);
+                if (numBg) {
+                    auto numLabel = dynamic_cast<Label*>(numBg->getChildByTag(100));
+                    if (numLabel) {
+                        numLabel->setString(StringUtils::format("x%d", newCount));
+                        return; // 不重建视图
+                    }
+                }
+            }
+        }
+        
+        // 如果没有活跃的长按，或数量为0，或找不到元素，则重建整个视图
         updateArmyView();
     }
 }
@@ -325,20 +375,25 @@ void TrainingLayer::removeTroop(int troopId) {
 void TrainingLayer::setupLongPressAction(Widget* target, std::function<void()> callback, const std::string& scheduleKey) {
     target->addTouchEventListener([=](Ref* sender, Widget::TouchEventType type) {
         if (type == Widget::TouchEventType::BEGAN) {
+            // 记录当前活跃的长按key
+            _activeLongPressKey = scheduleKey;
+            
             // 1. 立即执行一次（保证点一下也能触发）
             callback();
 
             // 2. 开启定时器：延迟 0.5秒后，每 0.1秒执行一次
-            // 参数说明：(回调, 间隔时间, 重复次数, 延迟时间, key)
             this->schedule([=](float) {
                 callback();
-                }, 0.1f, CC_REPEAT_FOREVER, 0.5f, scheduleKey);
+            }, 0.1f, CC_REPEAT_FOREVER, 0.5f, scheduleKey);
         }
         else if (type == Widget::TouchEventType::ENDED || type == Widget::TouchEventType::CANCELED) {
-            // 3. 手指抬起或移出，取消定时器
+            // 清除活跃的长按key
+            _activeLongPressKey.clear();
+            
+            // 手指抬起或移出，取消定时器
             this->unschedule(scheduleKey);
         }
-        });
+    });
 }
 // ==========================================
 // 【新增】底部兵种选择面板
@@ -413,12 +468,13 @@ Widget* TrainingLayer::createTroopCard(const TroopInfo& info, bool isUnlocked) {
         widget->addChild(sprite);
     }
 
-    // 3. 左下角：等级 (Lv.1)
+    // 3. 左下角：等级 - 从 VillageDataManager 获取实际等级
     auto levelBg = LayerColor::create(Color4B::BLACK, 40, 20);
     levelBg->setPosition(5, 5);
     widget->addChild(levelBg);
 
-    auto lvlLabel = Label::createWithTTF(StringUtils::format("Lv.%d", info.level), TRAIN_FONT, 14);
+    int actualLevel = VillageDataManager::getInstance()->getTroopLevel(info.id);
+    auto lvlLabel = Label::createWithTTF(StringUtils::format("Lv.%d", actualLevel), TRAIN_FONT, 14);
     lvlLabel->setPosition(20, 10);
     levelBg->addChild(lvlLabel);
 

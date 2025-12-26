@@ -100,12 +100,16 @@ private:
     
     // 触摸状态跟踪
     cocos2d::Vec2 _touchStartPos;
+    cocos2d::Vec2 _currentTouchPos;       // 【新增】当前触摸位置（用于长按放置）
     bool _isTouchMoving;
+    bool _isLongPressDeploying = false;   // 【新增】是否正在长按放置
     cocos2d::EventListenerTouchOneByOne* _touchListener = nullptr;
     
     // 辅助方法
     bool isTouchOnUI(const cocos2d::Vec2& touchPos);
     void showPlacementTip(const std::string& message, const cocos2d::Vec2& pos);
+    bool tryDeployTroopAt(const cocos2d::Vec2& touchPos);  // 【新增】尝试在指定位置放置兵种
+    void stopLongPressDeploy();                             // 【新增】停止长按放置
 
     // --- 云层遮罩相关 ---
     cocos2d::Sprite* _cloudSprite = nullptr;
